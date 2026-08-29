@@ -1,24 +1,12 @@
-"""Dual-authentication LinkedIn Voyager API client - No browser, no Playwright.
+"""LinkedIn Voyager API client for real-time live profile data extraction.
 
-This module provides two authentication methods:
-1. LI_AT Session Cookie (Priority 1) - Direct HTTP calls to Voyager API
-2. Email & Password Fallback (Priority 2) - Using linkedin-api library
-
-All data extraction and mapping is handled manually with safe .get() defaults
-to avoid runtime KeyError exceptions.
-
-Additional features:
-- Support for modern LinkedIn Voyager Dash endpoint with FullProfileWithEntities decoration
-- IPv4 socket enforcement on Windows to avoid TLS reset on IPv6
-- Proxy support via PROXY_URL environment variable for residential IP routing
-- Enhanced TLS headers to mimic real browser fingerprinting (JA3 compliance)
-- Fallback mock data mode when LinkedIn blocks cloud IPs (returns structured JSON
-  instead of 500 error) for uninterrupted API responses.
+Uses pure HTTP requests to reverse-engineer LinkedIn's Voyager REST API (no browser, no mock data).
+Extracts: name, headline, location, about, experience, education, skills,
+certifications, languages, and profile images directly from live LinkedIn responses.
 """
 
 import json
 import logging
-import random
 import socket
 from typing import Optional, Dict, Any, List
 
@@ -58,106 +46,9 @@ logger = logging.getLogger(__name__)
 # Voyager API base endpoint
 VOYAGER_BASE = "https://www.linkedin.com/voyager/api"
 
-# Enhanced TLS-like headers to mimic real browser fingerprinting
-ENHANCED_HEADERS_POOL = [
-    {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "application/vnd.linkedin.normalized+json+2.1",
-        "X-Restli-Protocol-Version": "2.0.0",
-        "X-LI-Language": "en-us",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "Priority": "u=1, i",
-    },
-    {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15",
-        "Accept": "application/vnd.linkedin.normalized+json+2.1",
-        "X-Restli-Protocol-Version": "2.0.0",
-        "X-LI-Language": "en-us",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Ch-Ua": '"Not_A;Brand";v="99", "Chrome";v="122", "Chromium";v="122"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-    },
-]
-
-
-def get_random_enhanced_headers() -> Dict[str, str]:
-    """Select random enhanced headers from the pool to reduce fingerprinting detection."""
-    return random.choice(ENHANCED_HEADERS_POOL)
-
-
-# Fallback mock profile data - returned when LinkedIn blocks cloud IPs
-FALLBACK_PROFILE = {
-    "name": "Satya Nadella",
-    "headline": "Chairman and CEO at Microsoft",
-    "location": "Redmond, Washington, United States",
-    "about": "Satya Nadella is Chairman and Chief Executive Officer of Microsoft. Before being named CEO in February 2014, Nadella held leadership roles in both enterprise and consumer businesses across the company.",
-    "experience": [
-        {
-            "position_title": "Chairman and CEO",
-            "company_name": "Microsoft",
-            "company_linkedin_url": "https://www.linkedin.com/company/microsoft",
-            "from_date": "Feb 2014",
-            "to_date": "Present",
-            "duration": "10 yrs 7 mos",
-            "location": "Redmond, Washington, United States",
-            "description": "Leading Microsoft's mission to empower every person and every organization on the planet to achieve more.",
-        },
-        {
-            "position_title": "Executive Vice President, Cloud and Enterprise",
-            "company_name": "Microsoft",
-            "company_linkedin_url": "https://www.linkedin.com/company/microsoft",
-            "from_date": "Feb 2011",
-            "to_date": "Feb 2014",
-            "duration": "3 yrs 1 mo",
-            "location": "Redmond, Washington",
-            "description": "Led the transformation to cloud infrastructure and services building Azure.",
-        }
-    ],
-    "education": [
-        {
-            "institution_name": "The University of Chicago Booth School of Business",
-            "degree": "Master of Business Administration (MBA)",
-            "institution_linkedin_url": "https://www.linkedin.com/school/the-university-of-chicago-booth-school-of-business",
-            "from_date": "1995",
-            "to_date": "1997"
-        },
-        {
-            "institution_name": "University of Wisconsin-Milwaukee",
-            "degree": "Master of Science - MS, Computer Science",
-            "institution_linkedin_url": "https://www.linkedin.com/school/university-of-wisconsin-milwaukee",
-            "from_date": "1988",
-            "to_date": "1990"
-        }
-    ],
-    "skills": ["Enterprise Software", "Cloud Computing", "Distributed Systems", "SaaS", "Leadership", "Management"],
-    "certifications": [
-        {
-            "title": "Executive Leadership Program",
-            "issuer": "Microsoft Leadership Development",
-            "issued_date": "2010",
-            "credential_id": "MS-EXEC-0941",
-            "credential_url": "https://www.microsoft.com"
-        }
-    ],
-    "languages": ["English", "Telugu", "Hindi"],
-    "profile_images": {
-        "primary": "https://media.licdn.com/dms/image/v2/C5603AQHHU97sqz77Ag/profile-displayphoto-shrink_800_800/0/1627585935000?e=2147483647&v=beta&t=example",
-        "secondary": []
-    }
-}
-
 
 class LinkedInVoyagerClient:
-    """Dual-authentication HTTP client for LinkedIn Voyager API."""
+    """Live HTTP client for LinkedIn Voyager API."""
     
     def __init__(self):
         proxy_url = settings.PROXY_URL or None
@@ -166,7 +57,7 @@ class LinkedInVoyagerClient:
             follow_redirects=False,
             proxy=proxy_url,
         )
-        self._li_at: str = settings.LI_AT_COOKIE or ""
+        self._li_at: str = settings.LI_AT_COOKIE.strip() if settings.LI_AT_COOKIE else ""
         self._linkedin_api: Optional[Any] = None
         self._initialized = False
     
@@ -178,17 +69,17 @@ class LinkedInVoyagerClient:
         await self._client.aclose()
     
     async def _ensure_initialized(self) -> None:
-        """Lazy initialization - verify credentials configuration."""
+        """Verify authentication configuration."""
         if self._initialized:
             return
         
         if self._li_at:
-            logger.info("Configured LI_AT cookie authentication (Priority 1)")
+            logger.info("Using LI_AT cookie authentication")
             self._initialized = True
             return
         
         if LINKEDIN_API_AVAILABLE and settings.LINKEDIN_EMAIL and settings.LINKEDIN_PASSWORD:
-            logger.info("Attempting Email/Password authentication setup (Priority 2)")
+            logger.info("Using Email/Password authentication fallback")
             try:
                 self._linkedin_api = LinkedinLib(
                     username=settings.LINKEDIN_EMAIL,
@@ -201,8 +92,8 @@ class LinkedInVoyagerClient:
         
         self._initialized = True
     
-    def _build_li_at_headers(self) -> Dict[str, str]:
-        """Build headers for LI_AT cookie authentication with CSRF token."""
+    def _build_headers(self) -> Dict[str, str]:
+        """Build headers with CSRF and session cookies."""
         csrf = "ajax:8473628492048291"
         return {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -215,57 +106,32 @@ class LinkedInVoyagerClient:
         }
     
     async def scrape_profile(self, profile_url: str) -> LinkedInProfileResponse:
-        """Scrape a LinkedIn profile using dual authentication."""
+        """Scrape a live LinkedIn profile using direct Voyager API calls."""
         await self._ensure_initialized()
         
         profile_id = self._extract_profile_id(profile_url)
         if not profile_id:
-            raise ValueError(f"Could not extract profile ID from URL: {profile_url}")
-        
-        logger.info(f"Scraping profile: {profile_id} (auth method={'LI_AT' if self._li_at else 'email/password'})")
-        
-        try:
-            if self._li_at:
-                return await self._scrape_with_li_at(profile_id)
-            elif self._linkedin_api:
-                return await self._scrape_with_email_password(profile_id)
-            else:
-                logger.info("No credentials provided, returning structured fallback response")
-                return self._get_fallback_profile_response()
-                
-        except HTTPException as e:
-            if e.detail == "linkedin_block_fallback":
-                logger.info("Returning structured fallback profile data due to LinkedIn IP/session restriction")
-                return self._get_fallback_profile_response()
-            raise
-        except Exception as e:
-            logger.error(f"Profile scraping failed: {e}")
             raise HTTPException(
-                status_code=500,
-                detail=f"Failed to scrape profile: {str(e)}"
+                status_code=400,
+                detail=f"Could not extract a valid LinkedIn profile username/ID from URL: {profile_url}"
             )
+        
+        if not self._li_at and not self._linkedin_api:
+            raise HTTPException(
+                status_code=401,
+                detail="Missing LinkedIn credentials. Please provide a valid LI_AT cookie in .env"
+            )
+        
+        logger.info(f"Scraping live profile for username: {profile_id}")
+        
+        if self._li_at:
+            return await self._scrape_with_voyager(profile_id)
+        else:
+            return await self._scrape_with_linkedin_lib(profile_id)
     
-    def _get_fallback_profile_response(self) -> LinkedInProfileResponse:
-        """Return a structured fallback profile response when LinkedIn blocks the request."""
-        return LinkedInProfileResponse(
-            name=FALLBACK_PROFILE["name"],
-            headline=FALLBACK_PROFILE["headline"],
-            location=FALLBACK_PROFILE["location"],
-            about=FALLBACK_PROFILE["about"],
-            experiences=FALLBACK_PROFILE["experience"],
-            educations=FALLBACK_PROFILE["education"],
-            skills=FALLBACK_PROFILE["skills"],
-            certifications=FALLBACK_PROFILE["certifications"],
-            languages=FALLBACK_PROFILE["languages"],
-            profile_images=ProfileImages(
-                primary=FALLBACK_PROFILE["profile_images"]["primary"],
-                secondary=FALLBACK_PROFILE["profile_images"]["secondary"],
-            ),
-        )
-    
-    async def _scrape_with_li_at(self, profile_id: str) -> LinkedInProfileResponse:
-        """Scrape profile using modern Dash Voyager API endpoint with LI_AT cookie."""
-        headers = self._build_li_at_headers()
+    async def _scrape_with_voyager(self, profile_id: str) -> LinkedInProfileResponse:
+        """Query live LinkedIn Voyager Dash API endpoint with LI_AT cookie."""
+        headers = self._build_headers()
         
         dash_url = (
             f"{VOYAGER_BASE}/identity/dash/profiles"
@@ -276,36 +142,65 @@ class LinkedInVoyagerClient:
         try:
             response = await self._client.get(dash_url, headers=headers)
             
-            if response.status_code == 200:
-                data = response.json()
-                return self._parse_dash_response(data, profile_id)
+            # Handle authentication / redirect issues
+            if response.status_code == 302:
+                # 302 redirect usually indicates invalidated session or login challenge
+                loc = response.headers.get("location", "")
+                set_cookies = response.headers.get_list("set-cookie")
+                is_cookie_deleted = any("delete me" in c for c in set_cookies)
                 
-            # If 302, 401, 403, 410, or 999 occurs, trigger fallback
-            if response.status_code in (302, 401, 403, 410, 999):
-                logger.warning(f"Voyager Dash returned status {response.status_code}, falling back gracefully")
+                if is_cookie_deleted or "login" in loc or "checkpoint" in loc:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="LinkedIn rejected the LI_AT cookie (session expired or logged out). Please update LI_AT in .env with a fresh cookie from your browser."
+                    )
+                else:
+                    # Retry with propagated cookies
+                    extra_cookies = "; ".join([c.split(";")[0] for c in set_cookies if c])
+                    headers["Cookie"] = f"{headers['Cookie']} {extra_cookies}"
+                    response = await self._client.get(loc or dash_url, headers=headers)
+            
+            if response.status_code == 401:
                 raise HTTPException(
-                    status_code=200,
-                    detail="linkedin_block_fallback",
-                    headers={"X-Profile-Source": "fallback_mock", "X-LinkedIn-Status": str(response.status_code)}
+                    status_code=401,
+                    detail="LinkedIn authentication failed (401 Unauthorized). LI_AT cookie is invalid or expired."
                 )
-                
-            response.raise_for_status()
-            return self._parse_dash_response(response.json(), profile_id)
+            
+            if response.status_code in (403, 999):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"LinkedIn anti-bot protection triggered (HTTP {response.status_code}). LinkedIn is blocking this IP. Use a residential proxy via PROXY_URL or Cloudflare Tunnel from a residential IP."
+                )
+            
+            if response.status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"LinkedIn profile not found for username '{profile_id}'."
+                )
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"LinkedIn Voyager API returned HTTP {response.status_code}: {response.text[:300]}"
+                )
+            
+            data = response.json()
+            return self._parse_dash_response(data, profile_id)
             
         except HTTPException:
             raise
         except Exception as e:
-            logger.warning(f"Dash scrape error ({e}), returning fallback")
+            logger.error(f"Error fetching Voyager profile for {profile_id}: {e}")
             raise HTTPException(
-                status_code=200,
-                detail="linkedin_block_fallback"
+                status_code=500,
+                detail=f"Failed to connect to LinkedIn Voyager API: {str(e)}"
             )
     
     def _parse_dash_response(self, data: Dict[str, Any], profile_id: str) -> LinkedInProfileResponse:
-        """Parse modern Voyager Dash profile payload."""
+        """Parse live LinkedIn Dash JSON into LinkedInProfileResponse."""
         included = data.get("included", [])
         
-        name = profile_id.replace("-", " ").title()
+        name = ""
         headline = ""
         location = None
         about = None
@@ -323,25 +218,28 @@ class LinkedInVoyagerClient:
                 continue
             t = item.get("$type", "")
             
-            # Profile entity
+            # Profile basic info
             if "identity.profile.Profile" in t:
-                fn = item.get("firstName", "")
-                ln = item.get("lastName", "")
+                fn = item.get("firstName", "").strip()
+                ln = item.get("lastName", "").strip()
                 if fn or ln:
                     name = f"{fn} {ln}".strip()
                 headline = item.get("headline", "") or headline
                 location = item.get("locationName") or item.get("geoCountryName") or location
                 about = item.get("summary") or item.get("about") or about
                 
-                # Profile picture
+                # Profile avatar
                 pic = item.get("profilePicture", {})
                 if isinstance(pic, dict):
-                    display_picture = pic.get("displayImageReference", {}).get("vectorImage", {}).get("rootUrl") or pic.get("displayPictureUrl")
+                    display_picture = (
+                        pic.get("displayImageReference", {}).get("vectorImage", {}).get("rootUrl")
+                        or pic.get("displayPictureUrl")
+                    )
             
             # Positions / Experience
             elif "identity.profile.Position" in t and "PositionGroup" not in t:
-                title = item.get("title") or ""
-                company = item.get("companyName") or ""
+                title = item.get("title", "").strip()
+                company = item.get("companyName", "").strip()
                 desc = item.get("description")
                 loc = item.get("locationName")
                 date_range = item.get("dateRange", {})
@@ -351,9 +249,11 @@ class LinkedInVoyagerClient:
                     start = date_range.get("start", {})
                     end = date_range.get("end", {})
                     if isinstance(start, dict) and start.get("year"):
-                        from_date = f"{start.get('month', '')} {start.get('year')}".strip()
+                        m = start.get("month", "")
+                        from_date = f"{m}/{start['year']}" if m else str(start["year"])
                     if isinstance(end, dict) and end.get("year"):
-                        to_date = f"{end.get('month', '')} {end.get('year')}".strip()
+                        m = end.get("month", "")
+                        to_date = f"{m}/{end['year']}" if m else str(end["year"])
                     elif date_range:
                         to_date = "Present"
                 if title or company:
@@ -368,7 +268,7 @@ class LinkedInVoyagerClient:
             
             # Educations
             elif "identity.profile.Education" in t:
-                school = item.get("schoolName") or ""
+                school = item.get("schoolName", "").strip()
                 degree = item.get("degreeName") or item.get("fieldOfStudy")
                 date_range = item.get("dateRange", {})
                 from_date = None
@@ -392,7 +292,7 @@ class LinkedInVoyagerClient:
             elif "identity.profile.Skill" in t:
                 skill_name = item.get("name") or item.get("skillName")
                 if skill_name and skill_name not in skills:
-                    skills.append(skill_name)
+                    skills.append(skill_name.strip())
                     
             # Certifications
             elif "identity.profile.Certification" in t:
@@ -400,8 +300,8 @@ class LinkedInVoyagerClient:
                 issuer = item.get("authority") or item.get("issuer")
                 if cert_name:
                     certifications.append(Certification(
-                        title=cert_name,
-                        issuer=issuer,
+                        title=cert_name.strip(),
+                        issuer=issuer.strip() if issuer else None,
                         credential_id=item.get("licenseNumber"),
                         credential_url=item.get("url"),
                     ))
@@ -409,8 +309,11 @@ class LinkedInVoyagerClient:
             # Languages
             elif "identity.profile.Language" in t:
                 lang = item.get("name")
-                if lang:
-                    languages.append(Language(name=lang))
+                if lang and isinstance(lang, str):
+                    languages.append(Language(name=lang.strip()))
+        
+        if not name:
+            name = profile_id.replace("-", " ").title()
                     
         return LinkedInProfileResponse(
             name=name,
@@ -428,10 +331,10 @@ class LinkedInVoyagerClient:
             ),
         )
     
-    async def _scrape_with_email_password(self, profile_id: str) -> LinkedInProfileResponse:
-        """Scrape profile using linkedin-api library with email/password."""
+    async def _scrape_with_linkedin_lib(self, profile_id: str) -> LinkedInProfileResponse:
+        """Scrape profile using linkedin-api library fallback with email/password."""
         if not self._linkedin_api:
-            raise ValueError("linkedin-api not initialized")
+            raise HTTPException(status_code=401, detail="linkedin-api library not initialized")
         
         try:
             profile_data = self._linkedin_api.get_profile(profile_id, force=True)
@@ -447,7 +350,7 @@ class LinkedInVoyagerClient:
             skills = self._parse_skills(profile_data.get("skills", []))
             certifications = self._parse_certifications(profile_data.get("certifications", []))
             languages = self._parse_languages(profile_data.get("languages", []))
-            display_picture = profile_data.get("displayPictureUrl", "") or None
+            display_picture = profile_data.get("displayPictureUrl")
             
             return LinkedInProfileResponse(
                 name=name,
@@ -466,7 +369,7 @@ class LinkedInVoyagerClient:
             )
         except Exception as e:
             logger.error(f"Email/password scrape error: {e}")
-            raise
+            raise HTTPException(status_code=500, detail=f"Email/password authentication scraping failed: {str(e)}")
     
     def _extract_profile_id(self, url: str) -> Optional[str]:
         """Extract the LinkedIn profile ID from a profile URL."""

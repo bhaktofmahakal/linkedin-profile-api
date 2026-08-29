@@ -29,27 +29,26 @@ async def scrape_profile(
     settings: Settings = Depends(get_settings),
 ) -> LinkedInProfileResponse:
     """
-    Scrape a LinkedIn profile using direct Voyager API calls.
+    Scrape a LinkedIn profile using direct live Voyager API calls.
     
     This endpoint uses pure HTTP REST requests to LinkedIn's internal Voyager API,
     eliminating the need for a headless browser. Authentication is handled via
     the LI_AT session cookie stored in the backend .env file.
-    
-    If LinkedIn's anti-bot systems block the cloud IP, the API gracefully returns
-    a structured fallback profile JSON instead of crashing with a 500 error.
     
     Args:
         url: LinkedIn profile URL to scrape
         settings: Application settings (injected via dependency)
     
     Returns:
-        LinkedInProfileResponse with all available profile data
+        LinkedInProfileResponse with all available live profile data
         
     Raises:
         400: Invalid URL format
         401: Invalid LinkedIn credentials (missing or expired LI_AT cookie)
+        403: LinkedIn anti-bot / IP block
+        404: Profile not found
         422: Validation error (missing URL parameter)
-        500: API request failure (unexpected error)
+        500: API request failure
     """
     # Validate the URL
     validated_url = validate_profile_url(url)
@@ -63,16 +62,11 @@ async def scrape_profile(
         try:
             result = await scraper.scrape_profile(clean_url)
             return result
-        except HTTPException as e:
-            # Re-raise HTTPException from the scraper (401 invalid credentials, 404 profile not found,
-            # or other API errors). The LinkedIn IP block fallback is handled internally in
-            # scrape_profile() which returns a fallback response normally.
+        except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Profile scraping failed for {validated_url}: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to scrape profile. "
-                        f"The LinkedIn profile may have restricted visibility, "
-                        f"the session cookie may be expired, or LinkedIn's API structure changed."
+                detail=f"Failed to scrape profile: {str(e)}"
             )
