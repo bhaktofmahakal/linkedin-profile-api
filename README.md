@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Deployment-Live-success.svg)](https://linkedin-profile-api-p0ep.onrender.com/health)
 
-A hosted, high-performance REST API that reverse engineers LinkedIn's internal **Voyager REST API** to extract comprehensive LinkedIn profile data as structured JSON — **100% browserless** (no Chromium, Playwright, or Selenium required).
+A hosted, high-performance REST API that reverse engineers LinkedIn's internal **Voyager Dash REST API** to extract comprehensive LinkedIn profile data as structured JSON — **100% browserless** (no Chromium, Playwright, or Selenium required).
 
 ---
 
@@ -23,18 +23,19 @@ A hosted, high-performance REST API that reverse engineers LinkedIn's internal *
 
 Traditional scraping approaches use headless browsers (Puppeteer, Playwright, Selenium) which are heavy on RAM/CPU, slow (5-15s per profile), and easily detected by bot-protection systems.
 
-This project uses a **pure HTTP browserless architecture** by reverse-engineering LinkedIn's private Voyager REST API:
+This project uses a **pure HTTP browserless architecture** by reverse-engineering LinkedIn's private Voyager Dash REST API:
 
 ```
 ┌───────────────────────────┐         ┌───────────────────────────────┐         ┌─────────────────────────┐
-│       Client Request      │  HTTP   │      FastAPI Backend          │  HTTP   │  LinkedIn Voyager API   │
-│  GET /api/v1/profile?url= │───────> │  • URL Validator              │───────> │  /voyager/api/identity/ │
-│  https://linkedin.com/... │         │  • Voyager Client (li_at)     │         │  profiles/{profile_id}  │
-└───────────────────────────┘         │  • Pydantic Schema Normalizer │         └─────────────────────────┘
-                                      └───────────────────────────────┘                      │
-                                                      │                                      ▼
-                                                      │ JSON                     Raw Voyager Payloads
-                                                      ▼                           (Identity + Details)
+│       Client Request      │  HTTP   │      FastAPI Backend          │  HTTP   │ LinkedIn Voyager API    │
+│  GET /api/v1/profile?url= │───────> │  • URL Validator              │───────> │ /voyager/api/identity/  │
+│  https://linkedin.com/... │         │  • Voyager Client (li_at)     │         │ dash/profiles?...       │
+└───────────────────────────┘         │  • Entity Resolution Engine   │         └─────────────────────────┘
+                                      │  • Pydantic Schema Validator  │                      │
+                                      └───────────────────────────────┘                      ▼
+                                                      │                         Live Dash Payloads
+                                                      │ JSON                     (Profile, Positions,
+                                                      ▼                          Schools, Companies)
                                       ┌───────────────────────────────┐                      │
                                       │    Structured JSON Response   │ <────────────────────┘
                                       └───────────────────────────────┘
@@ -44,7 +45,7 @@ This project uses a **pure HTTP browserless architecture** by reverse-engineerin
 * **Blazing Fast Response Times:** Sub-second latency compared to 5–15 seconds with headless browser scrapers.
 * **Minimal Resource Footprint:** Requires < 50MB RAM (runs efficiently on lightweight cloud instances).
 * **High Concurrency:** Built on Python's `asyncio`, `FastAPI`, and `httpx` for non-blocking asynchronous I/O.
-* **Deep Data Extraction:** Returns full profile history (all experiences, educations, skills, certifications, languages, and high-res media) unlike lightweight scrapers that only extract the 2 most recent positions.
+* **Deep Data Extraction:** Returns full profile history (all experiences, educations, skills, certifications, languages, and high-res media) with entity-resolved company/school URLs.
 
 ---
 
@@ -90,7 +91,7 @@ else:
 
 ## 3. Response Schema Documentation
 
-The API validates and normalizes LinkedIn's complex nested Voyager responses into a clean, strongly-typed Pydantic model.
+The API validates and normalizes LinkedIn's complex nested Voyager Dash responses into a clean, strongly-typed Pydantic model.
 
 ### Extracted Fields
 
@@ -101,118 +102,93 @@ The API validates and normalizes LinkedIn's complex nested Voyager responses int
 5. **`experiences`** (`array of objects`):
    - `position_title` (`string`): Job role.
    - `company_name` (`string`): Organization name.
-   - `company_linkedin_url` (`string`, optional): LinkedIn company page URL.
-   - `from_date` (`string`): Start date (e.g., `"Feb 2014"`).
-   - `to_date` (`string`): End date or `"Present"`.
-   - `duration` (`string`): Calculated duration (e.g., `"10 yrs 6 mos"`).
+   - `company_linkedin_url` (`string`, optional): Direct LinkedIn company page URL.
+   - `from_date` (`string`, optional): Start date (e.g., `"2/2014"` or `"2000"`).
+   - `to_date` (`string`, optional): End date or `"Present"`.
+   - `duration` (`string`, optional): Calculated duration.
    - `location` (`string`, optional): Job location / Remote status.
    - `description` (`string`, optional): Role responsibilities and achievements.
 6. **`educations`** (`array of objects`):
    - `institution_name` (`string`): University/College/School name.
-   - `degree` (`string`): Degree and field of study.
-   - `institution_linkedin_url` (`string`, optional): LinkedIn school page URL.
-   - `from_date` (`string`): Start year.
-   - `to_date` (`string`): End/Graduation year.
+   - `degree` (`string`, optional): Degree and field of study.
+   - `institution_linkedin_url` (`string`, optional): Direct LinkedIn school page URL.
+   - `from_date` (`string`, optional): Start year.
+   - `to_date` (`string`, optional): End/Graduation year.
 7. **`skills`** (`array of strings`): List of endorsed/listed skills.
 8. **`certifications`** (`array of objects`):
    - `title` (`string`): Certification name.
-   - `issuer` (`string`): Issuing authority/organization.
+   - `issuer` (`string`, optional): Issuing authority/organization.
    - `issued_date` (`string`, optional): Date issued.
    - `credential_id` (`string`, optional): License/Certificate ID.
    - `credential_url` (`string`, optional): Direct verification URL.
 9. **`languages`** (`array of objects`):
    - `name` (`string`): Language name.
 10. **`profile_images`** (`object`):
-    - `primary` (`string`): High-resolution profile avatar URL.
-    - `secondary` (`array of strings`): Additional or background/banner images.
+    - `primary` (`string`): Full high-resolution profile avatar URL (800x800).
+    - `secondary` (`array of strings`): Additional or background images.
 
-### Sample Structured JSON Payload
+### Live Extracted JSON Payload (Bill Gates)
 
 ```json
 {
-  "name": "Satya Nadella",
-  "headline": "Chairman and CEO at Microsoft",
-  "location": "Redmond, Washington, United States",
-  "about": "Satya Nadella is Chairman and Chief Executive Officer of Microsoft. Before being named CEO in February 2014, Nadella held leadership roles in both enterprise and consumer businesses across the company.",
+  "name": "Bill Gates",
+  "headline": "Chair, Gates Foundation and Founder, Breakthrough Energy",
+  "location": "Seattle, Washington, United States",
+  "about": "Chair of the Gates Foundation. Founder of Breakthrough Energy. Co-founder of Microsoft. Voracious reader. Avid traveler. Active blogger.",
   "experiences": [
     {
-      "position_title": "Chairman and CEO",
-      "company_name": "Microsoft",
-      "company_linkedin_url": "https://www.linkedin.com/company/microsoft",
-      "from_date": "Feb 2014",
+      "position_title": "Co-chair",
+      "company_name": "Gates Foundation",
+      "company_linkedin_url": "https://www.linkedin.com/company/gates-foundation",
+      "from_date": "2000",
       "to_date": "Present",
-      "duration": "10 yrs 7 mos",
-      "location": "Redmond, Washington, United States",
-      "description": "Leading Microsoft's mission to empower every person and every organization on the planet to achieve more."
+      "duration": null,
+      "location": null,
+      "description": null
     },
     {
-      "position_title": "Executive Vice President, Cloud and Enterprise",
+      "position_title": "Founder",
+      "company_name": "Breakthrough Energy",
+      "company_linkedin_url": "https://www.linkedin.com/company/breakthrough-energy",
+      "from_date": "2015",
+      "to_date": "Present",
+      "duration": null,
+      "location": null,
+      "description": null
+    },
+    {
+      "position_title": "Co-founder",
       "company_name": "Microsoft",
       "company_linkedin_url": "https://www.linkedin.com/company/microsoft",
-      "from_date": "Feb 2011",
-      "to_date": "Feb 2014",
-      "duration": "3 yrs 1 mo",
-      "location": "Redmond, Washington",
-      "description": "Led the transformation to cloud infrastructure and services building Azure."
+      "from_date": "1975",
+      "to_date": "Present",
+      "duration": null,
+      "location": null,
+      "description": null
     }
   ],
   "educations": [
     {
-      "institution_name": "The University of Chicago Booth School of Business",
-      "degree": "Master of Business Administration (MBA)",
-      "institution_linkedin_url": "https://www.linkedin.com/school/the-university-of-chicago-booth-school-of-business",
-      "from_date": "1995",
-      "to_date": "1997"
+      "institution_name": "Lakeside School",
+      "degree": null,
+      "institution_linkedin_url": "https://www.linkedin.com/school/lakeside-school/",
+      "from_date": null,
+      "to_date": null
     },
     {
-      "institution_name": "University of Wisconsin-Milwaukee",
-      "degree": "Master of Science - MS, Computer Science",
-      "institution_linkedin_url": "https://www.linkedin.com/school/university-of-wisconsin-milwaukee",
-      "from_date": "1988",
-      "to_date": "1990"
-    },
-    {
-      "institution_name": "Manipal Institute of Technology",
-      "degree": "Bachelor of Engineering - BE, Electrical and Electronics Engineering",
-      "institution_linkedin_url": "https://www.linkedin.com/school/manipal-institute-of-technology",
-      "from_date": "1984",
-      "to_date": "1988"
+      "institution_name": "Harvard University",
+      "degree": null,
+      "institution_linkedin_url": "https://www.linkedin.com/school/harvard-university/",
+      "from_date": "1973",
+      "to_date": "1975"
     }
   ],
-  "skills": [
-    "Enterprise Software",
-    "Cloud Computing",
-    "Distributed Systems",
-    "SaaS",
-    "Leadership",
-    "Strategic Planning",
-    "Product Management"
-  ],
-  "certifications": [
-    {
-      "title": "Executive Leadership Program",
-      "issuer": "Microsoft Leadership Development",
-      "issued_date": "2010",
-      "credential_id": "MS-EXEC-0941",
-      "credential_url": "https://www.microsoft.com"
-    }
-  ],
-  "languages": [
-    {
-      "name": "English"
-    },
-    {
-      "name": "Telugu"
-    },
-    {
-      "name": "Hindi"
-    }
-  ],
+  "skills": [],
+  "certifications": [],
+  "languages": [],
   "profile_images": {
-    "primary": "https://media.licdn.com/dms/image/v2/C5603AQHHU97sqz77Ag/profile-displayphoto-shrink_800_800/0/1627585935000?e=2147483647&v=beta&t=example",
-    "secondary": [
-      "https://media.licdn.com/dms/image/v2/C5616AQFw1Gk4b4W0qw/profile-displaybackgroundimage-shrink_350_1400/0/1627585935000"
-    ]
+    "primary": "https://media.licdn.com/dms/image/v2/D5603AQF-RYZP55jmXA/profile-displayphoto-shrink_800_800/B56ZRi8g.aGsAc-/0/1736826818808?e=1789603200&v=beta&t=GxLFjoH4mCSRCmjFjlSicYo4x_fhdKp4801w4OtVZPI",
+    "secondary": []
   }
 }
 ```
@@ -256,6 +232,9 @@ Open `.env` in your editor and configure your LinkedIn session:
 # Obtain 'li_at' from your browser: DevTools (F12) -> Application -> Cookies -> linkedin.com
 LI_AT=AQEDAQE...your_actual_li_at_cookie_here...
 
+# Optional: JSESSIONID cookie value from browser (e.g. ajax:1234567890)
+# JSESSIONID=ajax:your_jsessionid_here
+
 # Method 2: Email & Password Auth (Optional Fallback)
 LINKEDIN_EMAIL=your_email@example.com
 LINKEDIN_PASSWORD=your_password_here
@@ -292,7 +271,26 @@ The API will start locally at:
 
 ---
 
-## 5. Live Residential Tunneling Setup (Cloudflare Tunnel / Ngrok)
+## 5. Automated Testing
+
+Run the automated test suite to verify endpoints and validation:
+
+```bash
+python tests/test_api.py
+```
+
+**Test Output:**
+```bash
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.874s
+
+OK
+```
+
+---
+
+## 6. Live Residential Tunneling Setup (Cloudflare Tunnel / Ngrok)
 
 Because LinkedIn's security systems block major cloud datacenter IP ranges (AWS, Render, GCP, DigitalOcean) with HTTP 403 / 999 responses, you can expose your local residential IP via an HTTPS tunnel to fetch **100% real live data** without incurring residential proxy costs:
 
@@ -318,7 +316,7 @@ curl -X GET "https://YOUR-TUNNEL-URL.trycloudflare.com/api/v1/profile?url=https:
 
 ---
 
-## 6. Technical Approach, Reliability & Known Limitations
+## 7. Technical Approach, Reliability & Known Limitations
 
 ### Technical Approach
 * **Voyager API Protocol:** Reverse engineers LinkedIn's REST endpoints using `X-Restli-Protocol-Version: 2.0.0`, specific `User-Agent` mimicking desktop Chrome, `Accept-Language`, and authenticated `li_at` cookie tokens.
@@ -330,15 +328,15 @@ curl -X GET "https://YOUR-TUNNEL-URL.trycloudflare.com/api/v1/profile?url=https:
 
 | Limitation | Technical Context | Mitigation Implemented |
 |---|---|---|
-| **Cloud Datacenter IP Restrictions** | LinkedIn actively firewall-blocks datacenter ASNs (AWS, Render, GCP) with 403 Forbidden or 999 Request Denied. | • Support for `PROXY_URL` (residential proxy routing).<br>• Zero-cost residential tunneling via `cloudflared` / `ngrok`.<br>• Structured fallback responses for non-blocking uptime. |
+| **Cloud Datacenter IP Restrictions** | LinkedIn actively firewall-blocks datacenter ASNs (AWS, Render, GCP) with 403 Forbidden or 999 Request Denied. | • Support for `PROXY_URL` (residential proxy routing).<br>• Zero-cost residential tunneling via `cloudflared` / `ngrok`.<br>• Direct transparent error codes (401/403). |
 | **Session Cookie Expiration** | The `li_at` cookie expires after session revocation or prolonged inactivity (6–12 months). | Re-extract cookie from browser and update `.env` or set `LINKEDIN_EMAIL` / `LINKEDIN_PASSWORD` fallback. |
 | **Rate Limiting** | LinkedIn limits individual accounts to ~100 profile requests/hour to prevent bulk harvesting. | • Add jitter/delay between high-volume calls.<br>• Exponential backoff on HTTP 429 status codes. |
 | **Privacy & Connection Scope** | Profile fields configured by the user as "Private" or "1st-degree only" are restricted. | API extracts all fields made accessible to the authenticated session account. |
-| **Undocumented API Schema** | LinkedIn Voyager API is an internal interface and can update without notice. | Dynamic fallback dictionary parsing prevents runtime key-error crashes. |
+| **Undocumented API Schema** | LinkedIn Voyager API is an internal interface and can update without notice. | Dynamic entity resolution and null-safe schema parsing. |
 
 ---
 
-## 7. Submission Checklist Verification
+## 8. Submission Checklist Verification
 
 - [x] **Public HTTPS API Deployment:** Live on Render (`https://linkedin-profile-api-p0ep.onrender.com`) & Cloudflare Tunnel compatible.
 - [x] **Accepts Profile URL Input:** Handled cleanly via `GET /api/v1/profile?url=...` with validation.
@@ -350,6 +348,6 @@ curl -X GET "https://YOUR-TUNNEL-URL.trycloudflare.com/api/v1/profile?url=https:
 
 ---
 
-## 8. License
+## 9. License
 
 This project is open-source under the [MIT License](LICENSE).
