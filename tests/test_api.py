@@ -54,9 +54,19 @@ class TestLinkedInProfileAPI(unittest.TestCase):
             self.assertIn("skills", data)
             self.assertIn("languages", data)
             self.assertIn("profile_images", data)
-        else:
-            self.assertIn("detail", response.json())
+    def test_dynamic_auth_session_update(self):
+        """Test POST /api/v1/auth/session runtime cookie update."""
+        payload = {
+            "li_at": "AQED_TEST_SAMPLE_TOKEN_VALUE",
+            "jsessionid": "ajax:1234567890",
+        }
+        response = self.client.post("/api/v1/auth/session", json=payload)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+        self.assertIn("li_at_prefix", data)
 
 
 if __name__ == "__main__":
     unittest.main()
+

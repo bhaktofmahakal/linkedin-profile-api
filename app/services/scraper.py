@@ -50,14 +50,15 @@ VOYAGER_BASE = "https://www.linkedin.com/voyager/api"
 class LinkedInVoyagerClient:
     """Live HTTP client for LinkedIn Voyager API."""
     
-    def __init__(self):
+    def __init__(self, li_at: Optional[str] = None, jsessionid: Optional[str] = None):
         proxy_url = settings.PROXY_URL or None
         self._client = httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=False,
             proxy=proxy_url,
         )
-        self._li_at: str = settings.LI_AT_COOKIE.strip() if settings.LI_AT_COOKIE else ""
+        self._li_at: str = (li_at or settings.LI_AT_COOKIE or "").strip()
+        self._jsessionid: str = (jsessionid or settings.JSESSIONID or "").strip()
         self._linkedin_api: Optional[Any] = None
         self._initialized = False
     
@@ -94,7 +95,7 @@ class LinkedInVoyagerClient:
     
     def _build_headers(self) -> Dict[str, str]:
         """Build headers with CSRF and session cookies."""
-        csrf = (settings.JSESSIONID.strip().strip('"') if settings.JSESSIONID else "") or "ajax:8473628492048291"
+        csrf = (self._jsessionid.strip().strip('"') if self._jsessionid else "") or "ajax:8473628492048291"
         return {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "application/vnd.linkedin.normalized+json+2.1",
