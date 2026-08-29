@@ -33,7 +33,7 @@ This project reverse engineers LinkedIn's Voyager API to extract structured prof
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/your-org/linkedin-profile-api.git
+git clone https://github.com/bhaktofmahakal/linkedin-profile-api.git
 cd linkedin-profile-api
 python -m venv .venv
 # Windows: .venv\Scripts\activate
@@ -226,28 +226,57 @@ The solution uses direct HTTP authentication to LinkedIn's Voyager API:
 
 ### Render.com
 
-1. Create new Web Service → Connect GitHub repo
-2. Build Command: `pip install -r requirements.txt`
-3. Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-4. Add Environment Variables in Dashboard:
-   - `LI_AT=your_session_cookie` (required)
-   - `LINKEDIN_EMAIL=...` (optional)
-   - `LINKEDIN_PASSWORD=...` (optional)
+Deploy to Render using the included `render.yaml` blueprint:
+
+1. **Connect Repository**
+   - Go to [Render.com](https://render.com) and create a new account.
+   - Click **New Web Service** → **Connect Repository** → select `linkedin-profile-api`.
+   - GitHub: `https://github.com/bhaktofmahakal/linkedin-profile-api`.
+
+2. **Service Settings**
+   - **Name**: `linkedin-profile-api` (or your preferred name).
+   - **Environment**: `Python`.
+   - **Build Command**: `pip install -r requirements.txt`.
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+
+3. **Environment Variables**
+   - In the **Dashboard**, add the following environment variables:
+     - `LI_AT`: Your LinkedIn session cookie value (required).
+     - `LINKEDIN_EMAIL`: Your LinkedIn email (optional, for fallback auth).
+     - `LINKEDIN_PASSWORD`: Your LinkedIn password (optional, for fallback auth).
+     - `APP_ENV`: `production`.
+     - `API_V1_STR`: `/api/v1`.
+
+4. **Deploy**
+   - Click **Create Web Service**. Render will build and start your container.
+   - The service will be live at `https://linkedin-profile-api.onrender.com`.
+
+5. **Verify**
+   - Visit `https://linkedin-profile-api.onrender.com/health` — should return `{"status":"ok"}`.
+   - Test the profile endpoint: `https://linkedin-profile-api.onrender.com/api/v1/profile?url=https://www.linkedin.com/in/example`.
 
 ### Railway.app
 
-1. New Project → Deploy from GitHub
-2. Build Command: `pip install -r requirements.txt`
-3. Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-4. Set env vars in Railway Dashboard
+1. New Project → Deploy from GitHub.
+2. Build Command: `pip install -r requirements.txt`.
+3. Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+4. Set env vars in Railway Dashboard: `LI_AT`, `LINKEDIN_EMAIL`, `LINKEDIN_PASSWORD`, `APP_ENV=production`.
 
 ### Fly.io
 
 ```bash
 fly launch
 fly scale count 1
-fly env set LI_AT=... LINKEDIN_EMAIL=... LINKEDIN_PASSWORD=...
+fly env set LI_AT=... LINKEDIN_EMAIL=... LINKEDIN_PASSWORD=... APP_ENV=production
 fly deploy
+```
+
+### Procfile
+
+The repository includes a `Procfile` for compatibility with platforms that read it directly:
+
+```
+web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
 ## Git Repository & Submission

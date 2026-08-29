@@ -63,8 +63,7 @@ async def root() -> dict:
 async def health_check() -> dict:
     """Health check endpoint."""
     return {
-        "status": "healthy",
-        "environment": settings.APP_ENV,
+        "status": "ok",
     }
 
 
