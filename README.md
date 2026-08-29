@@ -51,7 +51,7 @@ This project uses a **pure HTTP browserless architecture** by reverse-engineerin
 
 ## 2. API Reference & Live Endpoints
 
-### Endpoint: `GET /api/v1/profile`
+### Endpoint 1: `GET /api/v1/profile`
 
 Fetches and parses a public or authenticated LinkedIn profile by URL.
 
@@ -60,6 +60,13 @@ Fetches and parses a public or authenticated LinkedIn profile by URL.
 | Parameter | Type | Required | Description | Example |
 |---|---|---|---|---|
 | `url` | `string` | **Yes** | Full LinkedIn profile URL | `https://www.linkedin.com/in/satyanadella` |
+
+#### Request Headers (Optional Dynamic Authentication)
+
+| Header | Type | Required | Description |
+|---|---|---|---|
+| `X-LI-AT` | `string` | No | Override backend session cookie for this specific request |
+| `X-JSESSIONID` | `string` | No | Paired JSESSIONID cookie |
 
 #### Example cURL Request (Live Cloud Deployment)
 
@@ -85,6 +92,27 @@ if response.status_code == 200:
     print(f"Total Experiences: {len(profile['experiences'])}")
 else:
     print(f"Error {response.status_code}: {response.text}")
+```
+
+---
+
+### Endpoint 2: `POST /api/v1/auth/session`
+
+Dynamically updates the active `LI_AT` and `JSESSIONID` cookies in server runtime memory without requiring server restart or redeployment.
+
+#### Request Body (`application/json`)
+```json
+{
+  "li_at": "AQEDAW1ZcZECAjeq...",
+  "jsessionid": "ajax:2097960617071703653"
+}
+```
+
+#### Example cURL
+```bash
+curl -X POST "https://linkedin-profile-api-p0ep.onrender.com/api/v1/auth/session" \
+     -H "Content-Type: application/json" \
+     -d '{"li_at": "AQED...", "jsessionid": "ajax:..."}'
 ```
 
 ---
