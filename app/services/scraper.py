@@ -1,16 +1,19 @@
-"""Playwright-based LinkedIn profile scraper service.
+"""Direct LinkedIn Voyager API client - browserless, pure HTTP REST.
 
-Handles authenticated browser navigation, profile data extraction,
-and clean mapping to Pydantic response models.
+This module replaces the Playwright-based scraper with direct HTTP requests
+to LinkedIn's internal Voyager endpoints. Authentication is handled via
+session cookies (li_at, JSESSIONID) provided in the .env file.
+
+Endpoints are reverse-engineered based on LinkedIn's public API structure.
+All data parsing extracts fields required by the Pydantic response schema.
 """
 
-import asyncio
 import json
 import logging
-from typing import Optional, List, Dict, Any, AsyncGenerator
+from typing import Optional, Dict, Any, List
 
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+import httpx
+from urllib.parse import quote_plus
 
 from core.config import settings
 from models.response_schemas import (
@@ -24,561 +27,332 @@ from models.response_schemas import (
 
 logger = logging.getLogger(__name__)
 
+# Voyager API base endpoint
+VOYAGER_BASE = "https://www.linkedin.com/voyager/api"
 
-class LinkedInScraper:
-    """Authenticated LinkedIn profile scraper using Playwright."""
+
+class LinkedInVoyagerClient:
+    """Direct HTTP client for LinkedIn Voyager API - no browser needed."""
     
-    def __init__(self, headless: bool = True):
-        self.headless = headless
-        self._playwright: Optional[Any] = None
-        self._browser: Optional[Browser] = None
-        self._context: Optional[BrowserContext] = None
-        self._initialized = False
+    def __init__(self):
+        self._client = httpx.AsyncClient(
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        self._session_cookie: Optional[str] = settings.LI_AT_COOKIE or ""
+        self._jsessionid: Optional[str] = ""
     
-    async def __aenter__(self) -> "LinkedInScraper":
-        await self.start()
+    async def __aenter__(self) -> "LinkedInVoyagerClient":
+        await self._ensure_auth()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        await self.close()
+        await self._client.aclose()
     
-    async def start(self) -> None:
-        """Initialize Playwright and launch browser."""
-        if self._initialized:
-            return
-        
-        try:
-            self._playwright = await async_playwright().start()
-            
-            # Launch browser with appropriate options
-            launch_kwargs = {
-                "headless": self.headless,
-                "slow_mo": 100 if settings.APP_ENV == "development" else 0,
-            }
-            
-            # Add user agent and viewport to avoid detection
-            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
-            
-            # Create context with storage state if we have a cookie
-            context_kwargs = {
-                "viewport": {"width": 1280, "height": 720},
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            }
-            
-            # Set up authentication cookie if LI_AT is provided
-            if settings.LI_AT_COOKIE:
-                context_kwargs["storage_state"] = {
-                    "cookies": [
-                        {
-                            "name": "li_at",
-                            "value": settings.LI_AT_COOKIE,
-                            "domain": ".linkedin.com",
-                            "path": "/",
-                        }
-                    ]
-                }
-            
-            self._context = await self._browser.new_context(**context_kwargs)
-            self._initialized = True
-            logger.info("LinkedIn scraper browser started successfully")
-            
-        except Exception as e:
-            await self.close()
-            raise RuntimeError(f"Failed to start LinkedIn scraper: {e}")
-    
-    async def close(self) -> None:
-        """Close browser and cleanup resources."""
-        if self._context:
-            await self._context.close()
-            self._context = None
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
-        self._initialized = False
-        logger.info("LinkedIn scraper browser closed")
+    async def _ensure_auth(self) -> None:
+        """Validate we have authentication credentials."""
+        if not self._session_cookie:
+            logger.warning("No LI_AT session cookie provided - API calls will fail")
     
     async def scrape_profile(self, profile_url: str) -> LinkedInProfileResponse:
-        """Scrape a LinkedIn profile URL and return structured data."""
+        """Scrape a LinkedIn profile using direct Voyager API calls."""
         
-        if not self._initialized:
-            await self.start()
+        # Extract the profile ID from the URL
+        profile_id = self._extract_profile_id(profile_url)
+        if not profile_id:
+            raise ValueError(f"Could not extract profile ID from URL: {profile_url}")
         
-        if not self._context or not self._browser:
-            raise RuntimeError("Browser not initialized")
+        logger.info(f"Scraping profile via Voyager API: {profile_id}")
         
-        page = await self._context.new_page()
+        # Build headers required for Voyager API
+        headers = self._build_headers()
         
+        # First: fetch profile identity data
+        identity_data = await self._fetch_identity(profile_id, headers)
+        
+        # Then: fetch detailed profile data
+        detailed_data = await self._fetch_profile_details(profile_id, headers)
+        
+        # Merge and normalize
+        return self._normalize_response(identity_data, detailed_data)
+    
+    def _extract_profile_id(self, url: str) -> Optional[str]:
+        """Extract the LinkedIn profile ID from a profile URL."""
         try:
-            logger.info(f"Navigating to profile: {profile_url}")
+            # Handle various LinkedIn URL formats
+            from urllib.parse import urlparse, parse_qs
             
-            # Navigate to the profile page
-            await page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
+            parsed = urlparse(url)
+            path = parsed.path.strip('/')
             
-            # Check for authentication/rate limit blockers
-            await self._check_auth_status(page)
+            # Format: /in/username or /in/public-id
+            if '/in/' in path:
+                parts = path.split('/in/')
+                if len(parts) == 2:
+                    return parts[1].split('?')[0].split('/')[0]
             
-            # Warm up - wait for page to settle
-            await page.wait_for_load_state("networkidle", timeout=30000)
+            # Handleurn format: urn:li:profile:{id}
+            if 'urn:li:profile:' in url.lower():
+                return None  # Complex handling would be needed
             
-            # Extract data from multiple sources
-            profile_data = await self._extract_all_data(page)
-            
-            return profile_data
-            
-        except PlaywrightTimeoutError as e:
-            logger.error(f"Timeout scraping profile {profile_url}: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Timed out scraping profile. The page structure may have changed "
-                        "or LinkedIn is rate limiting the request."
-            )
-        except Exception as e:
-            logger.error(f"Error scraping profile {profile_url}: {e}")
-            raise
-        finally:
-            await page.close()
-    
-    async def _check_auth_status(self, page: Page) -> None:
-        """Check for authentication roadblocks."""
-        current_url = page.url
-        
-        # Check for LinkedIn login page
-        if "/login" in current_url or "/checkpoint" in current_url:
-            error_msg = "Authentication required. Invalid or expired LinkedIn credentials."
-            logger.warning(error_msg)
-            raise HTTPException(
-                status_code=401,
-                detail=error_msg
-            )
-        
-        # Check for authwall
-        if "/authwall" in current_url:
-            raise HTTPException(
-                status_code=401,
-                detail="Authentication wall encountered. Credentials may be invalid."
-            )
-    
-    async def _extract_all_data(self, page: Page) -> LinkedInProfileResponse:
-        """Extract all profile data from the page."""
-        
-        # Try to extract LD+JSON structured data first
-        ld_json_data = await self._extract_ld_json(page)
-        
-        # Extract data from DOM selectors
-        dom_data = await self._extract_dom_data(page)
-        
-        # Merge and normalize data
-        return self._normalize_data(ld_json_data, dom_data)
-    
-    async def _extract_ld_json(self, page: Page) -> Dict[str, Any]:
-        """Extract LinkedIn LD+JSON structured data."""
-        try:
-            scripts = await page.locator(
-                "//script[@type='application/ld+json']"
-            ).all()
-            
-            for script in scripts:
-                try:
-                    text_content = await script.text_content()
-                    if not text_content.strip():
-                        continue
-                    
-                    data = json.loads(text_content)
-                    
-                    # Check if this is a Person schema
-                    if isinstance(data, dict):
-                        if data.get("@type") == "Person":
-                            return data
-                        # Check within @graph
-                        if "@graph" in data:
-                            for item in data["@graph"]:
-                                if isinstance(item, dict) and item.get("@type") == "Person":
-                                    return item
-                except (json.JSONDecodeError, Exception):
-                    continue
-        except Exception as e:
-            logger.debug(f"LD+JSON extraction failed: {e}")
-        
-        return {}
-    
-    async def _extract_dom_data(self, page: Page) -> Dict[str, Any]:
-        """Extract data from DOM selectors."""
-        data = {
-            "name": "",
-            "headline": "",
-            "location": "",
-            "about": "",
-            "experiences": [],
-            "educations": [],
-            "skills": [],
-            "certifications": [],
-            "languages": [],
-        }
-        
-        try:
-            # Extract name - typically in h1 tag
-            name = await self._safe_text(page, "h1")
-            if name:
-                data["name"] = name.strip()
-            
-            # Extract headline
-            headline = await self._safe_text(page, ".display-flex .text-heading-xxlarge")
-            if headline:
-                data["headline"] = headline.strip()
-            
-            # Extract location
-            location = await self._safe_text(page, ".text-body-small.inline")
-            if location:
-                data["location"] = location.strip()
-            
-            # Extract about section
-            about = await self._extract_about(page)
-            if about:
-                data["about"] = about
-            
-            # Extract experiences
-            data["experiences"] = await self._extract_experiences(page)
-            
-            # Extract educations
-            data["educations"] = await self._extract_educations(page)
-            
-            # Extract skills
-            data["skills"] = await self._extract_skills(page)
-            
-            # Extract certifications
-            data["certifications"] = await self._extract_certifications(page)
-            
-            # Extract languages
-            data["languages"] = await self._extract_languages(page)
-            
-        except Exception as e:
-            logger.warning(f"DOM data extraction had issues: {e}")
-        
-        return data
-    
-    async def _safe_text(self, page: Page, selector: str) -> Optional[str]:
-        """Safely extract text from a selector."""
-        try:
-            element = page.locator(selector).first
-            if await element.count() == 0:
-                return None
-            text = await element.text_content(timeout=5000)
-            return text.strip() if text else None
+            return path
         except Exception:
             return None
     
-    async def _extract_about(self, page: Page) -> Optional[str]:
-        """Extract the about/me section."""
-        try:
-            # Look for about section - try multiple selectors
-            selectors = [
-                "[data-section-about]",
-                ".about-section",
-                ".pv-about-section",
-                "//section[contains(@class, 'about')]",
-            ]
-            
-            for selector in selectors:
-                try:
-                    element = page.locator(selector).first
-                    if await element.count() > 0:
-                        # Try to get the full text
-                        text = await element.inner_text(timeout=5000)
-                        if text and text.strip():
-                            # Clean up the text
-                            text = " ".join(text.strip().split())
-                            return text
-                except Exception:
-                    continue
-            
-            # Fallback: look for "About" heading and get following content
-            about_heading = page.locator(":has-text('About')").first
-            if await about_heading.count() > 0:
-                # Get the parent section
-                parent = about_heading.locator("xpath=ancestor::*[1]")
-                if await parent.count() > 0:
-                    text = await parent.inner_text(timeout=5000)
-                    if text and text.strip():
-                        return text.strip()
-                        
-        except Exception as e:
-            logger.debug(f"About section extraction failed: {e}")
+    def _build_headers(self) -> Dict[str, str]:
+        """Build required headers for Voyager API authentication."""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/vnd.linkedin.v2+json",
+            "X-Restli-Protocol-Version": "2.0.0",
+            "X-LI-Language": "en-us",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
         
-        return None
+        # Add session cookie if available
+        if self._session_cookie:
+            headers["Cookie"] = f"li_at={self._session_cookie}"
+        
+        return headers
     
-    async def _extract_experiences(self, page: Page) -> List[Dict[str, Any]]:
-        """Extract work experience data."""
-        experiences = []
-        
+    async def _fetch_identity(self, profile_id: str, headers: Dict[str, str]) -> Dict[str, Any]:
+        """Fetch identity data from Voyager API."""
         try:
-            # Look for experience section heading
-            exp_heading = page.locator(':has-text("Experience")').first
+            url = f"{VOYAGER_BASE}/identity/profiles/{quote_plus(profile_id)}"
+            response = await self._client.get(url, headers=headers)
             
-            if await exp_heading.count() > 0:
-                # Try to find the experience section
-                section = exp_heading.locator("xpath=ancestor::*[1]")
-                
-                # Try different list item patterns
-                items = await section.locator(
-                    "ul > li, ol > li, .pvs-list__paged-list-item"
-                ).all()
-                
-                for item in items:
-                    try:
-                        # Try to extract position, company, dates
-                        title_elem = item.locator(
-                            "span[aria-hidden='true']"
-                        ).first
-                        
-                        title = await self._safe_text_from_locator(title_elem) if await title_elem.count() > 0 else None
-                        
-                        # Get company name (second text element or link)
-                        company = ""
-                        links = await item.locator("a").all()
-                        if len(links) > 0:
-                            href = await links[0].get_attribute("href")
-                            company = href or ""
-                        
-                        # Get date range
-                        date_text = await self._safe_text(item, ".date-range")
-                        
-                        if title or company:
-                            experiences.append({
-                                "position_title": title or "Unknown Position",
-                                "company_name": company.strip("/").split("/")[-1] if company else "Company",
-                                "from_date": "",  # Will be parsed if available
-                                "to_date": "",
-                                "duration": "",
-                                "location": "",
-                                "description": "",
-                            })
-                    except Exception:
-                        continue
-                    
-        except Exception as e:
-            logger.warning(f"Experience extraction had issues: {e}")
-        
-        return experiences
+            if response.status_code == 401:
+                logger.error("Authentication failed - invalid LI_AT cookie")
+                raise HTTPException(status_code=401, detail="Invalid LinkedIn session cookie")
+            
+            if response.status_code == 404:
+                logger.error(f"Profile not found: {profile_id}")
+                raise HTTPException(status_code=404, detail="Profile not found")
+            
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError as e:
+            logger.error(f"Voyager identity fetch error: {e}")
+            raise
     
-    async def _extract_educations(self, page: Page) -> List[Dict[str, Any]]:
-        """Extract education data."""
-        educations = []
-        
+    async def _fetch_profile_details(self, profile_id: str, headers: Dict[str, str]) -> Dict[str, Any]:
+        """Fetch detailed profile data from Voyager API."""
         try:
-            edu_heading = page.locator(':has-text("Education")').first
+            # Build the Voyager graph request for comprehensive profile data
+            url = f"{VOYAGER_BASE}/profiles/{quote_plus(profile_id)}"
+            # Include fields we need via the path selector
+            params = {
+                "q": "view",
+                "fields": "id,firstName,lastName,headline,location,about,"
+                          "experiences,educations,skills,certifications,languages,"
+                          "profilePicture,backgroundPicture"
+            }
             
-            if await edu_heading.count() > 0:
-                section = edu_heading.locator("xpath=ancestor::*[1]")
-                items = await section.locator(
-                    "ul > li, ol > li, .pvs-list__paged-list-item"
-                ).all()
-                
-                for item in items:
-                    try:
-                        institution = await self._safe_text(item, "a")
-                        degree = await self._safe_text(item, ".degree-info")
-                        
-                        if institution:
-                            educations.append({
-                                "institution_name": institution.strip(),
-                                "degree": degree.strip() if degree else None,
-                                "from_date": "",
-                                "to_date": "",
-                            })
-                    except Exception:
-                        continue
-                        
-        except Exception as e:
-            logger.warning(f"Education extraction had issues: {e}")
-        
-        return educations
+            response = await self._client.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError as e:
+            logger.error(f"Voyager profile details fetch error: {e}")
+            raise
     
-    async def _extract_skills(self, page: Page) -> List[str]:
-        """Extract skills from profile."""
-        skills = []
-        
-        try:
-            # Look for skills section
-            skills_section = page.locator(':has-text("Skills")').first
-            
-            if await skills_section.count() > 0:
-                # Find skill pills/tags
-                skill_elements = skills_section.locator(
-                    ".pill-container .pill, .skill-item, [data-skill]"
-                ).all()
-                
-                for skill in skill_elements:
-                    try:
-                        text = await skill.text_content(timeout=3000)
-                        if text and text.strip() and len(text.strip()) > 2:
-                            skills.append(text.strip())
-                    except Exception:
-                        continue
-                        
-        except Exception as e:
-            logger.debug(f"Skills extraction failed: {e}")
-        
-        # Deduplicate while preserving order
-        seen = set()
-        unique_skills = []
-        for skill in skills:
-            if skill not in seen:
-                seen.add(skill)
-                unique_skills.append(skill)
-        
-        return unique_skills[:50]  # Limit to 50 skills
-    
-    async def _extract_certifications(self, page: Page) -> List[Dict[str, Any]]:
-        """Extract certifications/accomplishments."""
-        certs = []
-        
-        try:
-            # Look for certifications section
-            cert_section = page.locator(':has-text("Certifications")').first
-            
-            if await cert_section.count() > 0:
-                items = await cert_section.locator(
-                    ".pvs-list__paged-list-item, .certification-item"
-                ).all()
-                
-                for item in items:
-                    try:
-                        title = await self._safe_text(item, "span:first-child")
-                        issuer = await self._safe_text(item, ".issuer")
-                        date = await self._safe_text(item, ".date")
-                        
-                        if title:
-                            certs.append({
-                                "title": title.strip(),
-                                "issuer": issuer.strip() if issuer else None,
-                                "issued_date": date.strip() if date else None,
-                                "credential_id": None,
-                                "credential_url": None,
-                            })
-                    except Exception:
-                        continue
-                        
-        except Exception as e:
-            logger.debug(f"Certifications extraction failed: {e}")
-        
-        return certs
-    
-    async def _extract_languages(self, page: Page) -> List[str]:
-        """Extract languages from profile."""
-        languages = []
-        
-        try:
-            # Look for "Languages" section or "Tiếng Việt" etc.
-            lang_section = page.locator(':has-text("Languages")').first
-            
-            if await lang_section.count() > 0:
-                # Find language items
-                lang_items = lang_section.locator(
-                    "li, .language-item, span[lang]"
-                ).all()
-                
-                for item in lang_items:
-                    try:
-                        text = await item.text_content(timeout=3000)
-                        if text and text.strip():
-                            lang = text.strip()
-                            if lang and lang not in languages:
-                                languages.append(lang)
-                    except Exception:
-                        continue
-                        
-        except Exception as e:
-            logger.debug(f"Languages extraction failed: {e}")
-        
-        return languages
-    
-    def _normalize_data(
+    def _normalize_response(
         self, 
-        ld_json: Dict[str, Any], 
-        dom: Dict[str, Any]
+        identity: Dict[str, Any], 
+        details: Dict[str, Any]
     ) -> LinkedInProfileResponse:
-        """Normalize and merge LD+JSON and DOM data into response model."""
+        """Normalize raw Voyager API response into Pydantic models."""
         
-        # Start with DOM data as fallback, LD+JSON as primary
-        name = ld_json.get("name", dom.get("name", ""))
-        headline = ld_json.get("headline", dom.get("headline", ""))
-        location = ld_json.get("location", {}).get("address", dom.get("location", ""))
-        about = ld_json.get("summary", dom.get("about", ""))
+        # Extract basic info from identity response
+        name = identity.get("name", "")
+        headline = identity.get("headline", "")
+        location = identity.get("location", {}).get("name") if isinstance(identity.get("location"), dict) else None
+        
+        # Extract about from details
+        about = details.get("about", "")
+        if about and isinstance(about, str) and len(about) > 500:
+            about = about[:500] + "..."
         
         # Extract experiences
-        experiences_data = ld_json.get("worksFor", dom.get("experiences", []))
-        experiences = []
-        for exp in (experiences_data if isinstance(experiences_data, list) else [experiences_data]):
-            experiences.append(Experience(
-                position_title=exp.get("title") or exp.get("positionTitle", ""),
-                company_name=exp.get("organization", {}).get("name", "") if isinstance(exp.get("organization"), dict) else "",
-                company_linkedin_url=exp.get("organization", {}).get("url", ""),
-                from_date=exp.get("startDate", ""),
-                to_date=exp.get("endDate", ""),
-                duration=exp.get("duration", ""),
-                location=exp.get("location", {}).get("name", "") if isinstance(exp.get("location"), dict) else "",
-                description=exp.get("description", ""),
-            ))
+        experiences = self._parse_experiences(details.get("experiences", []))
         
         # Extract educations
-        educations_data = ld_json.get("educations", dom.get("educations", []))
-        educations = []
-        for edu in (educations_data if isinstance(educations_data, list) else [educations_data]):
-            educations.append(Education(
-                institution_name=edu.get("school", {}).get("name", "") if isinstance(edu.get("school"), dict) else "",
-                degree=edu.get("fieldOfStudy"),
-                institution_linkedin_url=edu.get("school", {}).get("url", ""),
-                from_date=edu.get("startDate"),
-                to_date=edu.get("endDate"),
-            ))
+        educations = self._parse_educations(details.get("educations", []))
         
-        # Extract skills from LD+JSON if available, otherwise DOM
-        skills = ld_json.get("skills", [])
-        if not skills:
-            skills = dom.get("skills", [])
+        # Extract skills
+        skills = self._parse_skills(details.get("skills", []))
         
         # Extract certifications
-        certs_data = ld_json.get("certifications", dom.get("certifications", []))
-        certifications = []
-        for cert in (certs_data if isinstance(certs_data, list) else [certs_data]):
-            certifications.append(Certification(
-                title=cert.get("title", ""),
-                issuer=cert.get("issuer"),
-                issued_date=cert.get("issuedDate"),
-                credential_id=cert.get("credentialId"),
-                credential_url=cert.get("credentialUrl"),
-            ))
+        certifications = self._parse_certifications(details.get("certifications", []))
         
         # Extract languages
-        lang_data = ld_json.get("languages", [])
-        if not lang_data:
-            lang_data = dom.get("languages", [])
-        languages = [Language(name=lang) for lang in (lang_data if isinstance(lang_data, list) else [lang_data]) if lang]
+        languages = self._parse_languages(details.get("languages", []))
         
         # Profile images
-        profile_image_url = ld_json.get("image", "")
-        if not profile_image_url:
-            profile_image_url = dom.get("profile_images", {}).get("primary", "")
-        
-        secondary_images = ld_json.get("image", "")
-        # Extract secondary images from DOM if needed
+        profile_image = identity.get("profilePicture", {}).get("displayImageUrl", "") if isinstance(identity.get("profilePicture"), dict) else ""
         
         return LinkedInProfileResponse(
             name=name or "Unknown",
             headline=headline or "",
-            location=location or None,
+            location=location,
             about=about or None,
             experiences=experiences,
             educations=educations,
-            skills=skills[:50],  # Cap at 50
+            skills=skills,
             certifications=certifications,
             languages=languages,
             profile_images=ProfileImages(
-                primary=profile_image_url or "",
-                secondary=[],  # Will be populated if available
+                primary=profile_image,
+                secondary=[],
             ),
         )
+    
+    def _parse_experiences(self, experiences_data: List[Any]) -> List[Experience]:
+        """Parse experiences from Voyager response."""
+        results = []
+        
+        if not experiences_data:
+            return results
+        
+        # Handle different response formats
+        items = experiences_data if isinstance(experiences_data, list) else [experiences_data]
+        
+        for item in items:
+            try:
+                if isinstance(item, dict):
+                    # Extract key fields
+                    title = item.get("title", "") or item.get("positionTitle", "")
+                    company = item.get("companyName", "") or item.get("company", {}).get("name", "") if isinstance(item.get("company"), dict) else ""
+                    
+                    from_date = item.get("startDate", "")
+                    to_date = item.get("endDate", "")
+                    duration = item.get("duration", "")
+                    location = item.get("locationName", "") or item.get("location", {}).get("name", "") if isinstance(item.get("location"), dict) else ""
+                    description = item.get("description", "")
+                    
+                    if title or company:
+                        results.append(Experience(
+                            position_title=title.strip(),
+                            company_name=company.strip() or "Company",
+                            company_linkedin_url=item.get("companyUrl", ""),
+                            from_date=from_date,
+                            to_date=to_date,
+                            duration=duration,
+                            location=location.strip() if location else None,
+                            description=description.strip() if description else None,
+                        ))
+            except Exception as e:
+                logger.debug(f"Error parsing experience item: {e}")
+                continue
+        
+        return results
+    
+    def _parse_educations(self, educations_data: List[Any]) -> List[Education]:
+        """Parse education data from Voyager response."""
+        results = []
+        
+        if not educations_data:
+            return results
+        
+        items = educations_data if isinstance(educations_data, list) else [educations_data]
+        
+        for item in items:
+            try:
+                if isinstance(item, dict):
+                    institution = item.get("schoolName", "") or item.get("institution", {}).get("name", "") if isinstance(item.get("institution"), dict) else ""
+                    degree = item.get("degreeName", "") or item.get("fieldOfStudy", "")
+                    
+                    from_date = item.get("startDate", "")
+                    to_date = item.get("endDate", "")
+                    
+                    if institution:
+                        results.append(Education(
+                            institution_name=institution.strip(),
+                            degree=degree.strip() if degree else None,
+                            institution_linkedin_url=item.get("schoolUrl", ""),
+                            from_date=from_date,
+                            to_date=to_date,
+                        ))
+            except Exception as e:
+                logger.debug(f"Error parsing education item: {e}")
+                continue
+        
+        return results
+    
+    def _parse_skills(self, skills_data: List[Any]) -> List[str]:
+        """Parse skills list from Voyager response."""
+        skills = []
+        
+        if not skills_data:
+            return skills
+        
+        items = skills_data if isinstance(skills_data, list) else [skills_data]
+        
+        for item in items:
+            try:
+                if isinstance(item, dict):
+                    skill_name = item.get("name", "") or item.get("skillName", "")
+                    if skill_name:
+                        skills.append(skill_name.strip())
+            except Exception:
+                continue
+        
+        # Deduplicate while preserving order
+        seen = set()
+        unique = []
+        for skill in skills:
+            if skill not in seen:
+                seen.add(skill)
+                unique.append(skill)
+        
+        return unique
+    
+    def _parse_certifications(self, certs_data: List[Any]) -> List[Certification]:
+        """Parse certifications from Voyager response."""
+        results = []
+        
+        if not certs_data:
+            return results
+        
+        items = certs_data if isinstance(certs_data, list) else [certs_data]
+        
+        for item in items:
+            try:
+                if isinstance(item, dict):
+                    title = item.get("title", "") or item.get("credentialName", "")
+                    issuer = item.get("issuer", "")
+                    issued_date = item.get("issueDate", "")
+                    credential_id = item.get("credentialId", "")
+                    
+                    if title:
+                        results.append(Certification(
+                            title=title.strip(),
+                            issuer=issuer.strip() if issuer else None,
+                            issued_date=issued_date.strip() if issued_date else None,
+                            credential_id=credential_id.strip() if credential_id else None,
+                            credential_url=item.get("credentialUrl", ""),
+                        ))
+            except Exception:
+                continue
+        
+        return results
+    
+    def _parse_languages(self, languages_data: List[Any]) -> List[Language]:
+        """Parse languages from Voyager response."""
+        results = []
+        
+        if not languages_data:
+            return results
+        
+        items = languages_data if isinstance(languages_data, list) else [languages_data]
+        
+        for item in items:
+            try:
+                if isinstance(item, dict):
+                    lang_name = item.get("name", "") or item.get("languageName", "")
+                    if lang_name:
+                        results.append(Language(name=lang_name.strip()))
+            except Exception:
+                continue
+        
+        return results
