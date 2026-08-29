@@ -16,6 +16,7 @@ class Settings:
     LINKEDIN_EMAIL: str = os.getenv("LINKEDIN_EMAIL", "")
     LINKEDIN_PASSWORD: str = os.getenv("LINKEDIN_PASSWORD", "")
     LI_AT_COOKIE: str = os.getenv("LI_AT", "")
+    JSESSIONID: str = os.getenv("JSESSIONID", "")
     
     # Application settings
     APP_ENV: str = os.getenv("APP_ENV", "development")

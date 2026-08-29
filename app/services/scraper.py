@@ -94,7 +94,7 @@ class LinkedInVoyagerClient:
     
     def _build_headers(self) -> Dict[str, str]:
         """Build headers with CSRF and session cookies."""
-        csrf = "ajax:8473628492048291"
+        csrf = (settings.JSESSIONID.strip().strip('"') if settings.JSESSIONID else "") or "ajax:8473628492048291"
         return {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "application/vnd.linkedin.normalized+json+2.1",
@@ -220,16 +220,16 @@ class LinkedInVoyagerClient:
             
             # Profile basic info
             if "identity.profile.Profile" in t:
-                fn = item.get("firstName", "").strip()
-                ln = item.get("lastName", "").strip()
+                fn = (item.get("firstName") or "").strip()
+                ln = (item.get("lastName") or "").strip()
                 if fn or ln:
                     name = f"{fn} {ln}".strip()
-                headline = item.get("headline", "") or headline
+                headline = item.get("headline") or headline
                 location = item.get("locationName") or item.get("geoCountryName") or location
                 about = item.get("summary") or item.get("about") or about
                 
                 # Profile avatar
-                pic = item.get("profilePicture", {})
+                pic = item.get("profilePicture")
                 if isinstance(pic, dict):
                     display_picture = (
                         pic.get("displayImageReference", {}).get("vectorImage", {}).get("rootUrl")
@@ -238,21 +238,21 @@ class LinkedInVoyagerClient:
             
             # Positions / Experience
             elif "identity.profile.Position" in t and "PositionGroup" not in t:
-                title = item.get("title", "").strip()
-                company = item.get("companyName", "").strip()
+                title = (item.get("title") or "").strip()
+                company = (item.get("companyName") or "").strip()
                 desc = item.get("description")
                 loc = item.get("locationName")
-                date_range = item.get("dateRange", {})
+                date_range = item.get("dateRange")
                 from_date = None
                 to_date = None
                 if isinstance(date_range, dict):
-                    start = date_range.get("start", {})
-                    end = date_range.get("end", {})
+                    start = date_range.get("start")
+                    end = date_range.get("end")
                     if isinstance(start, dict) and start.get("year"):
-                        m = start.get("month", "")
+                        m = start.get("month")
                         from_date = f"{m}/{start['year']}" if m else str(start["year"])
                     if isinstance(end, dict) and end.get("year"):
-                        m = end.get("month", "")
+                        m = end.get("month")
                         to_date = f"{m}/{end['year']}" if m else str(end["year"])
                     elif date_range:
                         to_date = "Present"
@@ -260,22 +260,23 @@ class LinkedInVoyagerClient:
                     experiences.append(Experience(
                         position_title=title or "Position",
                         company_name=company or "Company",
+                        company_linkedin_url=item.get("companyUrn") or item.get("companyUrl"),
                         from_date=from_date,
                         to_date=to_date,
-                        location=loc,
-                        description=desc,
+                        location=str(loc).strip() if loc else None,
+                        description=str(desc).strip() if desc else None,
                     ))
             
             # Educations
             elif "identity.profile.Education" in t:
-                school = item.get("schoolName", "").strip()
+                school = (item.get("schoolName") or "").strip()
                 degree = item.get("degreeName") or item.get("fieldOfStudy")
-                date_range = item.get("dateRange", {})
+                date_range = item.get("dateRange")
                 from_date = None
                 to_date = None
                 if isinstance(date_range, dict):
-                    start = date_range.get("start", {})
-                    end = date_range.get("end", {})
+                    start = date_range.get("start")
+                    end = date_range.get("end")
                     if isinstance(start, dict) and start.get("year"):
                         from_date = str(start.get("year"))
                     if isinstance(end, dict) and end.get("year"):
@@ -283,25 +284,26 @@ class LinkedInVoyagerClient:
                 if school:
                     educations.append(Education(
                         institution_name=school,
-                        degree=degree,
+                        degree=str(degree).strip() if degree else None,
+                        institution_linkedin_url=item.get("schoolUrn") or item.get("schoolUrl"),
                         from_date=from_date,
                         to_date=to_date,
                     ))
             
             # Skills
             elif "identity.profile.Skill" in t:
-                skill_name = item.get("name") or item.get("skillName")
+                skill_name = (item.get("name") or item.get("skillName") or "").strip()
                 if skill_name and skill_name not in skills:
-                    skills.append(skill_name.strip())
+                    skills.append(skill_name)
                     
             # Certifications
             elif "identity.profile.Certification" in t:
-                cert_name = item.get("name") or item.get("title") or ""
+                cert_name = (item.get("name") or item.get("title") or "").strip()
                 issuer = item.get("authority") or item.get("issuer")
                 if cert_name:
                     certifications.append(Certification(
-                        title=cert_name.strip(),
-                        issuer=issuer.strip() if issuer else None,
+                        title=cert_name,
+                        issuer=str(issuer).strip() if issuer else None,
                         credential_id=item.get("licenseNumber"),
                         credential_url=item.get("url"),
                     ))
@@ -309,7 +311,7 @@ class LinkedInVoyagerClient:
             # Languages
             elif "identity.profile.Language" in t:
                 lang = item.get("name")
-                if lang and isinstance(lang, str):
+                if lang and isinstance(lang, str) and lang.strip():
                     languages.append(Language(name=lang.strip()))
         
         if not name:
@@ -317,9 +319,9 @@ class LinkedInVoyagerClient:
                     
         return LinkedInProfileResponse(
             name=name,
-            headline=headline,
-            location=location,
-            about=about,
+            headline=str(headline) if headline else "",
+            location=str(location) if location else None,
+            about=str(about) if about else None,
             experiences=experiences,
             educations=educations,
             skills=skills,
