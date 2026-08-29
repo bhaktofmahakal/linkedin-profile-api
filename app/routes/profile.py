@@ -21,7 +21,7 @@ async def scrape_profile(
     url: str = Query(
         ...,
         description="LinkedIn profile URL to scrape (e.g., https://www.linkedin.com/in/username)",
-        example="https://www.linkedin.com/in/john-doe",
+        examples=["https://www.linkedin.com/in/satyanadella"],
     ),
     settings: "Settings" = Depends(get_settings),
 ) -> LinkedInProfileResponse:
@@ -31,6 +31,9 @@ async def scrape_profile(
     This endpoint uses pure HTTP REST requests to LinkedIn's internal Voyager API,
     eliminating the need for a headless browser. Authentication is handled via
     the LI_AT session cookie stored in the backend .env file.
+    
+    If LinkedIn's anti-bot systems block the cloud IP, the API gracefully returns
+    a structured fallback profile JSON instead of crashing with a 500 error.
     
     Args:
         url: LinkedIn profile URL to scrape
@@ -43,7 +46,7 @@ async def scrape_profile(
         400: Invalid URL format
         401: Invalid LinkedIn credentials (missing or expired LI_AT cookie)
         422: Validation error (missing URL parameter)
-        500: API request failure
+        500: API request failure (unexpected error)
     """
     from urllib.parse import urlparse
     
@@ -59,7 +62,10 @@ async def scrape_profile(
         try:
             result = await scraper.scrape_profile(clean_url)
             return result
-        except HTTPException:
+        except HTTPException as e:
+            # Re-raise HTTPException from the scraper (401 invalid credentials, 404 profile not found,
+            # or other API errors). The LinkedIn IP block fallback is handled internally in
+            # scrape_profile() which returns a fallback response normally.
             raise
         except Exception as e:
             logger.error(f"Profile scraping failed for {validated_url}: {e}")
