@@ -200,9 +200,34 @@ class LinkedInVoyagerClient:
         """Parse live LinkedIn Dash JSON into LinkedInProfileResponse."""
         included = data.get("included", [])
         
+        # Build lookup maps for related entities
+        companies_map: Dict[str, str] = {}
+        schools_map: Dict[str, str] = {}
+        geo_name: Optional[str] = None
+        
+        for item in included:
+            if not isinstance(item, dict):
+                continue
+            t = item.get("$type", "")
+            urn = item.get("entityUrn", "")
+            if "organization.Company" in t and urn:
+                uname = item.get("universalName")
+                if uname:
+                    companies_map[urn] = f"https://www.linkedin.com/company/{uname}"
+                elif item.get("url"):
+                    companies_map[urn] = item.get("url")
+            elif "organization.School" in t and urn:
+                uname = item.get("universalName")
+                if uname:
+                    schools_map[urn] = f"https://www.linkedin.com/school/{uname}"
+                elif item.get("url"):
+                    schools_map[urn] = item.get("url")
+            elif "common.Geo" in t:
+                geo_name = item.get("defaultLocalizedName") or item.get("name")
+        
         name = ""
         headline = ""
-        location = None
+        location = geo_name
         about = None
         display_picture = None
         secondary_images: List[str] = []
@@ -225,16 +250,22 @@ class LinkedInVoyagerClient:
                 if fn or ln:
                     name = f"{fn} {ln}".strip()
                 headline = item.get("headline") or headline
-                location = item.get("locationName") or item.get("geoCountryName") or location
+                location = location or item.get("locationName") or item.get("geoCountryName")
                 about = item.get("summary") or item.get("about") or about
                 
-                # Profile avatar
+                # Profile avatar with full high-resolution resolution
                 pic = item.get("profilePicture")
                 if isinstance(pic, dict):
-                    display_picture = (
-                        pic.get("displayImageReference", {}).get("vectorImage", {}).get("rootUrl")
-                        or pic.get("displayPictureUrl")
-                    )
+                    vec = pic.get("displayImageReference", {}).get("vectorImage", {})
+                    root_url = vec.get("rootUrl", "")
+                    artifacts = vec.get("artifacts", [])
+                    if root_url and artifacts:
+                        seg = artifacts[-1].get("fileIdentifyingUrlPathSegment", "")
+                        display_picture = root_url + seg
+                    elif root_url:
+                        display_picture = root_url
+                    elif pic.get("displayPictureUrl"):
+                        display_picture = pic.get("displayPictureUrl")
             
             # Positions / Experience
             elif "identity.profile.Position" in t and "PositionGroup" not in t:
@@ -256,11 +287,15 @@ class LinkedInVoyagerClient:
                         to_date = f"{m}/{end['year']}" if m else str(end["year"])
                     elif date_range:
                         to_date = "Present"
+                
+                comp_urn = item.get("*company") or item.get("companyUrn")
+                comp_url = companies_map.get(comp_urn) if comp_urn else item.get("companyUrl")
+                
                 if title or company:
                     experiences.append(Experience(
                         position_title=title or "Position",
                         company_name=company or "Company",
-                        company_linkedin_url=item.get("companyUrn") or item.get("companyUrl"),
+                        company_linkedin_url=comp_url,
                         from_date=from_date,
                         to_date=to_date,
                         location=str(loc).strip() if loc else None,
@@ -281,11 +316,15 @@ class LinkedInVoyagerClient:
                         from_date = str(start.get("year"))
                     if isinstance(end, dict) and end.get("year"):
                         to_date = str(end.get("year"))
+                        
+                sch_urn = item.get("*school") or item.get("schoolUrn")
+                sch_url = schools_map.get(sch_urn) if sch_urn else item.get("schoolUrl")
+                
                 if school:
                     educations.append(Education(
                         institution_name=school,
                         degree=str(degree).strip() if degree else None,
-                        institution_linkedin_url=item.get("schoolUrn") or item.get("schoolUrl"),
+                        institution_linkedin_url=sch_url,
                         from_date=from_date,
                         to_date=to_date,
                     ))
