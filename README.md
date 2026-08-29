@@ -1,5 +1,7 @@
 # LinkedIn Profile API
 
+Live Deployment: https://linkedin-profile-api-p0ep.onrender.com
+
 A hosted FastAPI service that extracts LinkedIn profile data using **pure HTTP REST requests** to LinkedIn's internal Voyager API — no browser, no Playwright, purely reverse-engineered.
 
 ## Project Overview
@@ -82,19 +84,37 @@ The API will be available at `http://localhost:8000`.
 
 ### 4. Test the API
 
-**cURL:**
+**cURL (Local):**
 
 ```bash
 curl "http://localhost:8000/api/v1/profile?url=https://www.linkedin.com/in/example"
 ```
 
-**Python:**
+**cURL (Live Deployment):**
+
+```bash
+curl "https://linkedin-profile-api-p0ep.onrender.com/api/v1/profile?url=https://www.linkedin.com/in/example"
+```
+
+**Python (Local):**
 
 ```python
 import requests
 
 resp = requests.get(
     "http://localhost:8000/api/v1/profile",
+    params={"url": "https://www.linkedin.com/in/example"}
+)
+print(resp.json())
+```
+
+**Python (Live Deployment):**
+
+```python
+import requests
+
+resp = requests.get(
+    "https://linkedin-profile-api-p0ep.onrender.com/api/v1/profile",
     params={"url": "https://www.linkedin.com/in/example"}
 )
 print(resp.json())
@@ -109,10 +129,10 @@ print(resp.json())
 
 **Response:** JSON object matching the schema below
 
-### Example Request
+### Example Request (Live)
 
 ```bash
-curl "http://localhost:8000/api/v1/profile?url=https://www.linkedin.com/in/john-doe"
+curl "https://linkedin-profile-api-p0ep.onrender.com/api/v1/profile?url=https://www.linkedin.com/in/john-doe"
 ```
 
 ### Example Response
@@ -172,6 +192,32 @@ curl "http://localhost:8000/api/v1/profile?url=https://www.linkedin.com/in/john-
 | 401 | Invalid LinkedIn credentials / expired LI_AT cookie |
 | 422 | Validation error (missing URL parameter) |
 | 500 | API request failure (rate limited, profile restricted, network error) |
+
+## Health Check
+
+### Endpoint: `GET /health`
+
+**Live URL:** `https://linkedin-profile-api-p0ep.onrender.com/health`
+
+**Response:** `{"status": "ok"}`
+
+Used by Render's automated health check monitoring to verify the service is online.
+
+### cURL Health Check
+
+```bash
+curl "https://linkedin-profile-api-p0ep.onrender.com/health"
+```
+
+### Python Health Check
+
+```python
+import requests
+
+resp = requests.get("https://linkedin-profile-api-p0ep.onrender.com/health")
+print(resp.json())
+# Output: {"status": "ok"}
+```
 
 ## Architecture & Technical Approach
 
