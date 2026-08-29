@@ -1,20 +1,34 @@
 """Pydantic models for LinkedIn Profile API response."""
 
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, HttpUrl
+from typing import List, Optional, Dict, Any, Union
+from pydantic import BaseModel, Field, field_validator
 
 
 class ProfileImages(BaseModel):
     """Profile image URLs."""
-    primary: HttpUrl
-    secondary: List[HttpUrl] = Field(default_factory=list)
+    primary: Optional[str] = None
+    secondary: List[str] = Field(default_factory=list)
+
+    @field_validator("primary", mode="before")
+    @classmethod
+    def validate_primary(cls, v):
+        if v is None:
+            return None
+        return str(v)
+
+    @field_validator("secondary", mode="before")
+    @classmethod
+    def validate_secondary(cls, v):
+        if not v:
+            return []
+        return [str(x) for x in v if x]
 
 
 class Experience(BaseModel):
     """Work experience model."""
     position_title: Optional[str] = None
     company_name: Optional[str] = None
-    company_linkedin_url: Optional[HttpUrl] = Field(default=None, alias="company_linkedin_url")
+    company_linkedin_url: Optional[str] = Field(default=None, alias="company_linkedin_url")
     from_date: Optional[str] = None
     to_date: Optional[str] = None
     duration: Optional[str] = None
@@ -29,7 +43,7 @@ class Education(BaseModel):
     """Education model."""
     institution_name: Optional[str] = None
     degree: Optional[str] = None
-    institution_linkedin_url: Optional[HttpUrl] = Field(default=None, alias="institution_linkedin_url")
+    institution_linkedin_url: Optional[str] = Field(default=None, alias="institution_linkedin_url")
     from_date: Optional[str] = None
     to_date: Optional[str] = None
 
@@ -43,12 +57,16 @@ class Certification(BaseModel):
     issuer: Optional[str] = None
     issued_date: Optional[str] = None
     credential_id: Optional[str] = None
-    credential_url: Optional[HttpUrl] = Field(default=None, alias="credential_url")
+    credential_url: Optional[str] = Field(default=None, alias="credential_url")
 
 
 class Language(BaseModel):
     """Language model."""
     name: str
+
+    @classmethod
+    def from_str(cls, v: str) -> "Language":
+        return cls(name=v)
 
 
 class LinkedInProfileResponse(BaseModel):
@@ -66,9 +84,21 @@ class LinkedInProfileResponse(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {
-            HttpUrl: lambda v: str(v)
-        }
+
+    @field_validator("languages", mode="before")
+    @classmethod
+    def validate_languages(cls, v):
+        if not v:
+            return []
+        res = []
+        for item in v:
+            if isinstance(item, str):
+                res.append(Language(name=item))
+            elif isinstance(item, dict):
+                res.append(Language(**item))
+            elif isinstance(item, Language):
+                res.append(item)
+        return res
 
     def to_dict(self) -> dict:
         return self.model_dump(by_alias=True)

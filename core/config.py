@@ -20,6 +20,7 @@ class Settings:
     # Application settings
     APP_ENV: str = os.getenv("APP_ENV", "development")
     API_V1_STR: str = "/api/v1"
+    PROXY_URL: str = os.getenv("PROXY_URL", "")
     
     # Scraping settings
     MAX_RETRIES: int = 3

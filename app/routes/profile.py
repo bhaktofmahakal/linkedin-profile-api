@@ -1,11 +1,14 @@
-"""Profile scraping route for LinkedIn Profile API - Voyager API direct calls."""
-
-from fastapi import APIRouter, Query, Depends, HTTPException, status
+import logging
+from urllib.parse import urlparse
 from typing import Optional
+from fastapi import APIRouter, Query, Depends, HTTPException, status
 
+from core.config import Settings
 from core.dependencies import validate_profile_url, get_settings, get_public_profile_url
 from models.response_schemas import LinkedInProfileResponse
-from ..services.scraper import LinkedInVoyagerClient
+from app.services.scraper import LinkedInVoyagerClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["profile"])
 
@@ -23,7 +26,7 @@ async def scrape_profile(
         description="LinkedIn profile URL to scrape (e.g., https://www.linkedin.com/in/username)",
         examples=["https://www.linkedin.com/in/satyanadella"],
     ),
-    settings: "Settings" = Depends(get_settings),
+    settings: Settings = Depends(get_settings),
 ) -> LinkedInProfileResponse:
     """
     Scrape a LinkedIn profile using direct Voyager API calls.
@@ -48,8 +51,6 @@ async def scrape_profile(
         422: Validation error (missing URL parameter)
         500: API request failure (unexpected error)
     """
-    from urllib.parse import urlparse
-    
     # Validate the URL
     validated_url = validate_profile_url(url)
     

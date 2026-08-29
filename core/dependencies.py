@@ -4,14 +4,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from typing import Optional, Generator
 
-from .config import settings
+from .config import Settings, settings
 
 
 # Bearer token security (optional for future auth)
 security = HTTPBearer(auto_error=False)
 
 
-def get_settings() -> "settings":
+def get_settings() -> Settings:
     """Dependency to get application settings."""
     return settings
 
