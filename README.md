@@ -65,7 +65,7 @@ Fetches and parses a public or authenticated LinkedIn profile by URL.
 
 | Header | Type | Required | Description | Example |
 |---|---|---|---|---|
-| `X-LI-AT` | `string` | **Yes** | Active LinkedIn `li_at` session cookie value | `AQEDAW1ZcZECA...` |
+| `X-LI-AT` | `string` | **Yes** | Active LinkedIn `li_at` (**LinkedIn Auth Token / Access Token**, pronounced *"lee-at"* / *"L-I-at"*) session cookie value | `AQEDAW1ZcZECA...` |
 | `X-JSESSIONID` | `string` | No | Optional paired `JSESSIONID` cookie value | `ajax:2097960617071703653` |
 
 #### Example cURL Request (Live Cloud Deployment)
@@ -280,12 +280,15 @@ API_V1_STR=/api/v1
 
 #### 🍪 How to Extract `li_at` & `JSESSIONID` Cookies (Step-by-Step)
 
+> **💡 What is `li_at`?**  
+> `li_at` stands for **LinkedIn Auth Token / Access Token** (colloquially pronounced *"lee-at"* or *"L-I-at"*). It is the secure HTTP-only session cookie issued by LinkedIn upon user authentication that authorizes Voyager API requests.
+
 ##### Option A: Using Browser Extensions (Cookie-Editor / EditThisCookie) [Fastest & Easiest]
 1. Install **[Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)** or **EditThisCookie** from the Chrome Web Store or Firefox Add-ons.
 2. Open [LinkedIn](https://www.linkedin.com/feed/) in your browser and ensure you are logged in.
 3. Click the **Cookie-Editor** extension icon in your browser toolbar.
 4. Scroll or search for the following two cookies:
-   - **`li_at`**: Click to expand -> Copy the **Value** text (starts with `AQED...`).
+   - **`li_at`** (*LinkedIn Auth Token*): Click to expand -> Copy the **Value** text (starts with `AQED...`).
    - **`JSESSIONID`**: Click to expand -> Copy the **Value** text (e.g. `ajax:2097960617071703653`).
 5. Paste both values into your `.env` file as `LI_AT=` and `JSESSIONID=`.
 
