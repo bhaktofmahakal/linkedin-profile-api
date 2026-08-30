@@ -242,7 +242,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Step 2: Configure Environment Variables & Credentials
+### Step 2: Configure Environment Variables & Dual Authentication
 
 Copy the `.env.example` template to `.env`:
 
@@ -250,20 +250,17 @@ Copy the `.env.example` template to `.env`:
 cp .env.example .env
 ```
 
-Open `.env` in your editor and configure your LinkedIn session:
+Open `.env` in your editor and choose your authentication method:
 
 ```env
 # ==============================================================================
 # LINKEDIN CREDENTIALS (REQUIRED FOR BACKEND VOYAGER CLIENT)
 # ==============================================================================
-# Method 1: Session Cookie Authentication (Recommended)
-# Obtain 'li_at' from your browser: DevTools (F12) -> Application -> Cookies -> linkedin.com
-LI_AT=AQEDAQE...your_actual_li_at_cookie_here...
+# Method 1: Session Cookie Authentication (Recommended - 100% Browserless)
+LI_AT=AQEDAW1ZcZECAjeq...your_actual_li_at_cookie_here...
+JSESSIONID=ajax:2097960617071703653
 
-# Optional: JSESSIONID cookie value from browser (e.g. ajax:1234567890)
-# JSESSIONID=ajax:your_jsessionid_here
-
-# Method 2: Email & Password Auth (Optional Fallback)
+# Method 2: Email & Password Authentication (Fallback)
 LINKEDIN_EMAIL=your_email@example.com
 LINKEDIN_PASSWORD=your_password_here
 
@@ -277,13 +274,38 @@ API_V1_STR=/api/v1
 # PROXY_URL=http://user:password@residential-proxy.example.com:8080
 ```
 
-#### How to Safely Extract the `li_at` Cookie
-1. Log in to [LinkedIn](https://www.linkedin.com) in your desktop browser.
-2. Press `F12` or right-click anywhere and select **Inspect** to open Developer Tools.
-3. Navigate to **Application** (Chrome/Edge) or **Storage** (Firefox).
-4. Under **Cookies**, select `https://www.linkedin.com`.
-5. Find the row with name `li_at` and copy its **Value**.
-6. Paste this value into your `.env` file as `LI_AT=<value>`.
+---
+
+#### 🍪 How to Extract `li_at` & `JSESSIONID` Cookies (Step-by-Step)
+
+##### Option A: Using Browser Extensions (Cookie-Editor / EditThisCookie) [Fastest & Easiest]
+1. Install **[Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)** or **EditThisCookie** from the Chrome Web Store or Firefox Add-ons.
+2. Open [LinkedIn](https://www.linkedin.com/feed/) in your browser and ensure you are logged in.
+3. Click the **Cookie-Editor** extension icon in your browser toolbar.
+4. Scroll or search for the following two cookies:
+   - **`li_at`**: Click to expand -> Copy the **Value** text (starts with `AQED...`).
+   - **`JSESSIONID`**: Click to expand -> Copy the **Value** text (e.g. `ajax:2097960617071703653`).
+5. Paste both values into your `.env` file as `LI_AT=` and `JSESSIONID=`.
+
+##### Option B: Using Browser Native Developer Tools (F12) [No Extensions Needed]
+1. Open [LinkedIn](https://www.linkedin.com) in Chrome, Edge, Brave, or Firefox.
+2. Press **`F12`** (or Right-Click anywhere -> **Inspect**) to open Developer Tools.
+3. Navigate to:
+   - **Chrome / Edge / Brave:** `Application` tab -> `Storage` -> `Cookies` -> `https://www.linkedin.com`.
+   - **Firefox:** `Storage` tab -> `Cookies` -> `https://www.linkedin.com`.
+4. Locate **`li_at`** in the table, double-click its **Value**, and copy the string.
+5. Locate **`JSESSIONID`** in the table, double-click its **Value**, and copy the string.
+6. Paste them into your `.env` file.
+
+##### Option C: Dual Method (Email & Password Fallback)
+If you prefer not to manage session cookies manually, supply `LINKEDIN_EMAIL` and `LINKEDIN_PASSWORD` in `.env`. The backend client automatically initializes authenticated requests using credential negotiation.
+
+---
+
+#### ⚡ 3 Ways to Use Your Credentials:
+1. **Local `.env`:** Saved in your local environment for seamless CLI and local server runs (`python run.py`).
+2. **Dynamic Request Header (`X-LI-AT`):** Pass `X-LI-AT: <cookie>` in Swagger UI (`/docs`) or cURL for ad-hoc queries without changing server config.
+3. **Runtime API Update (`POST /api/v1/auth/session`):** Send a single JSON request to the live server to update active tokens in memory with zero downtime or redeployments.
 
 > 🔒 **Security Notice:** The `.env` file is strictly ignored via `.gitignore` to prevent any credentials from being committed to the public GitHub repository.
 
