@@ -43,7 +43,7 @@ async def update_session(
     response_model=LinkedInProfileResponse,
     summary="Scrape a LinkedIn profile via Voyager API (browserless)",
     description="Accepts a LinkedIn profile URL and returns structured JSON data using direct REST API requests to LinkedIn's Voyager endpoints. "
-                "Optionally accepts 'X-LI-AT' header to supply a dynamic session cookie at runtime.",
+                "Requires 'X-LI-AT' session cookie header for authentication.",
 )
 async def scrape_profile(
     url: str = Query(
@@ -51,10 +51,10 @@ async def scrape_profile(
         description="LinkedIn profile URL to scrape (e.g., https://www.linkedin.com/in/username)",
         examples=["https://www.linkedin.com/in/satyanadella"],
     ),
-    x_li_at: Optional[str] = Header(
-        None,
+    x_li_at: str = Header(
+        ...,
         alias="X-LI-AT",
-        description="Optional dynamic LinkedIn LI_AT session cookie (overrides server default for this request)",
+        description="LinkedIn LI_AT session cookie (Required for authenticated Voyager API access)",
     ),
     x_jsessionid: Optional[str] = Header(
         None,

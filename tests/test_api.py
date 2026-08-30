@@ -28,19 +28,27 @@ class TestLinkedInProfileAPI(unittest.TestCase):
         self.assertEqual(data["name"], "LinkedIn Profile API")
         self.assertEqual(data["status"], "operational")
 
+    def test_profile_scraper_missing_header(self):
+        """Test profile endpoint with missing required X-LI-AT header."""
+        response = self.client.get("/api/v1/profile?url=https://www.linkedin.com/in/satyanadella")
+        self.assertEqual(response.status_code, 422)
+
     def test_profile_scraper_validation_error(self):
         """Test profile endpoint with missing URL."""
-        response = self.client.get("/api/v1/profile")
+        headers = {"X-LI-AT": "AQED_SAMPLE_TOKEN"}
+        response = self.client.get("/api/v1/profile", headers=headers)
         self.assertEqual(response.status_code, 422)
 
     def test_profile_scraper_invalid_url(self):
         """Test profile endpoint with invalid LinkedIn URL."""
-        response = self.client.get("/api/v1/profile?url=https://google.com/invalid")
+        headers = {"X-LI-AT": "AQED_SAMPLE_TOKEN"}
+        response = self.client.get("/api/v1/profile?url=https://google.com/invalid", headers=headers)
         self.assertEqual(response.status_code, 400)
 
     def test_profile_scraper_valid_url(self):
-        """Test profile endpoint with valid LinkedIn URL."""
-        response = self.client.get("/api/v1/profile?url=https://www.linkedin.com/in/satyanadella")
+        """Test profile endpoint with valid LinkedIn URL and header."""
+        headers = {"X-LI-AT": "AQED_SAMPLE_TOKEN"}
+        response = self.client.get("/api/v1/profile?url=https://www.linkedin.com/in/satyanadella", headers=headers)
         # In pure live mode without mocks:
         # If credentials and IP are accepted -> 200 with complete profile schema
         # If LinkedIn blocks IP or session cookie needs renewal -> 401 / 403 with structured detail

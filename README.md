@@ -61,18 +61,19 @@ Fetches and parses a public or authenticated LinkedIn profile by URL.
 |---|---|---|---|---|
 | `url` | `string` | **Yes** | Full LinkedIn profile URL | `https://www.linkedin.com/in/satyanadella` |
 
-#### Request Headers (Optional Dynamic Authentication)
+#### Request Headers (Authentication)
 
-| Header | Type | Required | Description |
-|---|---|---|---|
-| `X-LI-AT` | `string` | No | Override backend session cookie for this specific request |
-| `X-JSESSIONID` | `string` | No | Paired JSESSIONID cookie |
+| Header | Type | Required | Description | Example |
+|---|---|---|---|---|
+| `X-LI-AT` | `string` | **Yes** | Active LinkedIn `li_at` session cookie value | `AQEDAW1ZcZECA...` |
+| `X-JSESSIONID` | `string` | No | Optional paired `JSESSIONID` cookie value | `ajax:2097960617071703653` |
 
 #### Example cURL Request (Live Cloud Deployment)
 
 ```bash
 curl -X GET "https://linkedin-profile-api-p0ep.onrender.com/api/v1/profile?url=https://www.linkedin.com/in/satyanadella" \
-     -H "Accept: application/json"
+     -H "Accept: application/json" \
+     -H "X-LI-AT: your_active_li_at_cookie_here"
 ```
 
 #### Example Python Client
@@ -81,9 +82,10 @@ curl -X GET "https://linkedin-profile-api-p0ep.onrender.com/api/v1/profile?url=h
 import requests
 
 api_url = "https://linkedin-profile-api-p0ep.onrender.com/api/v1/profile"
+headers = {"X-LI-AT": "your_active_li_at_cookie_here"}
 params = {"url": "https://www.linkedin.com/in/satyanadella"}
 
-response = requests.get(api_url, params=params)
+response = requests.get(api_url, headers=headers, params=params)
 if response.status_code == 200:
     profile = response.json()
     print(f"Name: {profile['name']}")
