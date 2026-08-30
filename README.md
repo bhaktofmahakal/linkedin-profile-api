@@ -13,7 +13,6 @@ A hosted, high-performance REST API that reverse engineers LinkedIn's internal *
 
 * **Live API Base URL:** [`https://linkedin-profile-api-p0ep.onrender.com`](https://linkedin-profile-api-p0ep.onrender.com)
 * **Interactive Swagger UI Docs:** [`https://linkedin-profile-api-p0ep.onrender.com/docs`](https://linkedin-profile-api-p0ep.onrender.com/docs)
-* **ReDoc API Reference:** [`https://linkedin-profile-api-p0ep.onrender.com/redoc`](https://linkedin-profile-api-p0ep.onrender.com/redoc)
 * **Health Check Endpoint:** [`https://linkedin-profile-api-p0ep.onrender.com/health`](https://linkedin-profile-api-p0ep.onrender.com/health)
 * **GitHub Repository:** [`https://github.com/bhaktofmahakal/linkedin-profile-api`](https://github.com/bhaktofmahakal/linkedin-profile-api)
 
