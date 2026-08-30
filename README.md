@@ -16,6 +16,8 @@ A hosted, high-performance REST API that reverse engineers LinkedIn's internal *
 * **Health Check Endpoint:** [`https://linkedin-profile-api-p0ep.onrender.com/health`](https://linkedin-profile-api-p0ep.onrender.com/health)
 free limit reached <img width="891" height="72" alt="image" src="https://github.com/user-attachments/assets/0e06ef30-8254-444e-8475-63f8dbaeac8e" />
 
+## BAD LUCK
+
 * **GitHub Repository:** [`https://github.com/bhaktofmahakal/linkedin-profile-api`](https://github.com/bhaktofmahakal/linkedin-profile-api)
 
 ---
